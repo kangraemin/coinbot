@@ -68,10 +68,11 @@ async def send_close_alert(entry_price: float, exit_price: float, pnl: float, fe
     await send_telegram(msg)
 
 
-async def send_daily_report(trades: list[dict]) -> None:
+async def send_daily_report(trades: list[dict], balance: float = 0.0) -> None:
     """일일 요약 리포트를 발송한다."""
     if not trades:
-        await send_telegram("📋 *coinbot 일일 리포트*\n오늘 거래 없음")
+        msg = f"📋 *coinbot 일일 리포트*\n오늘 거래 없음\n\n💰 현재 잔액: {balance:,.2f} USDT"
+        await send_telegram(msg)
         return
 
     total_trades = len(trades)
@@ -88,5 +89,6 @@ async def send_daily_report(trades: list[dict]) -> None:
         f"승률: {win_rate:.0f}%\n"
         f"총 수수료: {total_fee:,.4f} USDT\n"
         f"순익합계: {total_pnl:,.2f} USDT\n"
+        f"\n💰 현재 잔액: {balance:,.2f} USDT"
     )
     await send_telegram(msg)

@@ -60,13 +60,12 @@ async def data_loop(exchange) -> None:
             await asyncio.sleep(cfg.RECONNECT_DELAY)
 
 
-async def daily_report_loop() -> None:
-    """매일 자정(KST)에 일일 리포트를 발송한다."""
+async def daily_report_loop(exchange) -> None:
+    """매일 오전 7시(KST)에 일일 리포트를 발송한다."""
     KST = timezone(timedelta(hours=9))
     while True:
         try:
             now = datetime.now(KST)
-            # 다음 오전 7시까지 대기
             next_7am = now.replace(hour=7, minute=0, second=0, microsecond=0)
             if now >= next_7am:
                 next_7am += timedelta(days=1)
@@ -76,7 +75,9 @@ async def daily_report_loop() -> None:
 
             from journal import get_daily_trades
             trades = get_daily_trades()
-            await report.send_daily_report(trades)
+            balance_data = await exchange.fetch_balance()
+            balance = float(balance_data.get("USDT", {}).get("free", 0))
+            await report.send_daily_report(trades, balance)
             logger.info("일일 리포트 발송 완료")
         except asyncio.CancelledError:
             raise
@@ -102,7 +103,7 @@ async def main() -> None:
             data_loop(exchange),
             strategy_loop(exchange, shared_state),
             risk_loop(exchange, shared_state),
-            daily_report_loop(),
+            daily_report_loop(exchange),
         )
     except asyncio.CancelledError:
         logger.info("봇 종료 요청 수신")
