@@ -25,25 +25,24 @@ LEVERAGE: int = 3
 MARGIN_TYPE: str = "isolated"
 
 # ── 캔들 버퍼 ────────────────────────────────────────
-CANDLE_BUFFER_SIZE: int = 200
+CANDLE_BUFFER_SIZE: int = 100
 INITIAL_CANDLE_LOAD: int = 100
 
 # ── 지표 파라미터 ────────────────────────────────────
 BB_PERIOD: int = 20
 BB_STD: float = 2.0
 RSI_PERIOD: int = 14
-EMA_LONG: int = 200
-EMA_SHORT: int = 50
 ATR_PERIOD: int = 14
-VOLUME_MA_PERIOD: int = 20
+ADX_PERIOD: int = 14
 
 # ── 진입 조건 임계값 ────────────────────────────────
 RSI_THRESHOLD: float = 35.0
-VOLUME_MULTIPLIER: float = 1.2
+ADX_TREND_THRESHOLD: float = 25.0   # ADX >= 25 → 추세장, 평균회귀 스킵
 
-# ── 익절/손절 (ATR 배수) ────────────────────────────
-TP_ATR_MULT: float = 2.0
-SL_ATR_MULT: float = 1.0
+# ── 익절/손절 ────────────────────────────────────────
+# TP: BB 중심선 (평균회귀 타겟) — TP_ATR_MULT 미사용
+TP_ATR_MULT: float = 2.0            # 레거시, 미사용
+SL_ATR_MULT: float = 1.5            # 진입가 - ATR × 1.5
 
 # ── 리스크 ───────────────────────────────────────────
 TRADE_AMOUNT_USDT: float = float(os.getenv("TRADE_AMOUNT_USDT", "100"))

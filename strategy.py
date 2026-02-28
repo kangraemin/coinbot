@@ -1,4 +1,14 @@
-"""전략 A: 트렌드 필터 평균회귀 — 지표 계산, 진입 조건, 익절/손절."""
+"""전략 B: ADX 레짐 필터 평균회귀 — 지표 계산, 진입 조건, 익절/손절.
+
+진입 조건 (4개):
+  1. ADX(14) < 25  — 횡보 레짐 (추세장에선 평균회귀 무효)
+  2. 가격 ≤ BB 하단(20, 2σ) — 과매도 구간 진입
+  3. RSI(14) ≤ 35  — 모멘텀 과매도 확인
+  4. RSI 반등 시작 — 바닥 확인 (rsi[0] > rsi[-1])
+
+익절: BB 중심선 (진정한 평균회귀 타겟)
+손절: 진입가 - ATR(14) × 1.5
+"""
 
 import asyncio
 import logging
@@ -13,16 +23,17 @@ import report
 logger = logging.getLogger(__name__)
 
 
+# 모든 지표 안정화에 필요한 최소 캔들 수 (ADX ~28, BB 20, RSI 14)
+_CANDLE_MIN = 50
+
+
 # ── 지표 계산 ────────────────────────────────────────
 
 
 def compute_indicators(shared_state: dict) -> dict | None:
-    """shared_state의 캔들 deque로 지표를 계산하여 반환한다.
-
-    캔들이 EMA_LONG(200)개 미만이면 None을 반환한다.
-    """
+    """shared_state의 캔들 deque로 지표를 계산하여 반환한다."""
     candles = shared_state["candles"]
-    if len(candles) < cfg.EMA_LONG:
+    if len(candles) < _CANDLE_MIN:
         return None
 
     df = pd.DataFrame(
@@ -33,34 +44,28 @@ def compute_indicators(shared_state: dict) -> dict | None:
     close = df["close"]
     high = df["high"]
     low = df["low"]
-    volume = df["volume"]
 
-    # Bollinger Bands
-    bb_indicator = ta_lib.volatility.BollingerBands(close, window=cfg.BB_PERIOD, window_dev=cfg.BB_STD)
-    bb_lower = bb_indicator.bollinger_lband()
+    # Bollinger Bands (20, 2σ)
+    bb = ta_lib.volatility.BollingerBands(close, window=cfg.BB_PERIOD, window_dev=cfg.BB_STD)
+    bb_lower = bb.bollinger_lband()
+    bb_middle = bb.bollinger_mavg()  # 평균회귀 TP 타겟
 
-    # RSI
+    # RSI (14)
     rsi = ta_lib.momentum.RSIIndicator(close, window=cfg.RSI_PERIOD).rsi()
 
-    # EMA
-    ema_long = ta_lib.trend.EMAIndicator(close, window=cfg.EMA_LONG).ema_indicator()
-    ema_short = ta_lib.trend.EMAIndicator(close, window=cfg.EMA_SHORT).ema_indicator()
-
-    # ATR
+    # ATR (14)
     atr = ta_lib.volatility.AverageTrueRange(high, low, close, window=cfg.ATR_PERIOD).average_true_range()
 
-    # Volume MA
-    volume_ma = volume.rolling(window=cfg.VOLUME_MA_PERIOD).mean()
+    # ADX (14) — 레짐 감지 (횡보 vs 추세)
+    adx = ta_lib.trend.ADXIndicator(high, low, close, window=cfg.ADX_PERIOD).adx()
 
     indicators = {
         "bb_lower": bb_lower.iloc[-1],
+        "bb_middle": bb_middle.iloc[-1],
         "rsi": rsi.iloc[-1],
         "rsi_prev": rsi.iloc[-2] if len(rsi) >= 2 else None,
-        "ema_long": ema_long.iloc[-1],
-        "ema_short": ema_short.iloc[-1],
         "atr": atr.iloc[-1],
-        "volume": volume.iloc[-1],
-        "volume_ma": volume_ma.iloc[-1],
+        "adx": adx.iloc[-1],
     }
 
     # NaN 체크 — 지표 미완성 시 None 반환
@@ -75,24 +80,21 @@ def compute_indicators(shared_state: dict) -> dict | None:
 
 
 def check_entry_conditions(price: float, indicators: dict) -> bool:
-    """5개 진입 조건을 모두 충족하면 True를 반환한다."""
-    # 1. 가격 > EMA 200 — 매크로 상승장 필터
-    if price <= indicators["ema_long"]:
+    """4개 진입 조건 — ADX 레짐 + BB 하단 + RSI 과매도 + RSI 반등."""
+    # 1. ADX < 25 — 횡보 레짐 (평균회귀 유효 구간)
+    #    추세장(ADX >= 25)에서 평균회귀는 손절 반복으로 이어짐
+    if indicators["adx"] >= cfg.ADX_TREND_THRESHOLD:
         return False
 
-    # 2. 가격 < BB 하단 (20, 2σ) — 과매도 구간
-    if price >= indicators["bb_lower"]:
+    # 2. 가격 ≤ BB 하단 (20, 2σ) — 과매도 구간 진입
+    if price > indicators["bb_lower"]:
         return False
 
-    # 3. RSI(14) < 35 — 모멘텀 약화
-    if indicators["rsi"] >= cfg.RSI_THRESHOLD:
+    # 3. RSI(14) ≤ 35 — 모멘텀 과매도 확인
+    if indicators["rsi"] > cfg.RSI_THRESHOLD:
         return False
 
-    # 4. 거래량 > 20봉 평균 × 1.2 — 신호 신뢰도
-    if indicators["volume"] <= indicators["volume_ma"] * cfg.VOLUME_MULTIPLIER:
-        return False
-
-    # 5. RSI 반등 시작 (RSI[0] > RSI[1]) — 바닥 확인
+    # 4. RSI 반등 시작 — 바닥 확인 (단순 하락 중 진입 방지)
     if indicators["rsi_prev"] is None or indicators["rsi"] <= indicators["rsi_prev"]:
         return False
 
@@ -128,10 +130,10 @@ async def place_entry_order(exchange, price: float, indicators: dict) -> dict | 
 
 
 async def place_tp_sl_orders(
-    exchange, entry_price: float, amount: float, atr: float
+    exchange, entry_price: float, amount: float, atr: float, bb_middle: float
 ) -> tuple[dict | None, dict | None]:
-    """ATR 기반 익절/손절 지정가 주문을 배치한다."""
-    tp_price = entry_price + atr * cfg.TP_ATR_MULT
+    """익절(BB 중심선)/손절(ATR×1.5) 지정가 주문을 배치한다."""
+    tp_price = bb_middle                      # 평균회귀 타겟 = BB 중심선
     sl_price = entry_price - atr * cfg.SL_ATR_MULT
 
     tp_order = None
@@ -184,7 +186,7 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                 continue
 
             # 캔들 데이터 충분한지 확인
-            if len(shared_state["candles"]) < cfg.EMA_LONG:
+            if len(shared_state["candles"]) < _CANDLE_MIN:
                 await asyncio.sleep(1)
                 continue
 
@@ -210,17 +212,19 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                 # 진입 조건 체크
                 if check_entry_conditions(price, indicators):
                     logger.info(
-                        "진입 조건 충족 — 가격: %.2f, RSI: %.1f, BB하단: %.2f",
+                        "진입 조건 충족 — 가격: %.2f, RSI: %.1f, ADX: %.1f, BB하단: %.2f",
                         price,
                         indicators["rsi"],
+                        indicators["adx"],
                         indicators["bb_lower"],
                     )
                     order = await place_entry_order(exchange, price, indicators)
                     if order:
                         amount = float(order.get("amount", 0))
                         atr = indicators["atr"]
+                        bb_middle = indicators["bb_middle"]
                         tp_order, sl_order = await place_tp_sl_orders(
-                            exchange, price, amount, atr
+                            exchange, price, amount, atr, bb_middle
                         )
 
                         # 매매 일지 기록
@@ -237,7 +241,7 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                         )
 
                         # Telegram 알림
-                        tp_price = price + atr * cfg.TP_ATR_MULT
+                        tp_price = bb_middle
                         sl_price = price - atr * cfg.SL_ATR_MULT
                         await report.send_trade_alert(
                             "buy", price, amount, tp_price, sl_price
