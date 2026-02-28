@@ -214,9 +214,9 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
                 await _place_tp_sl(exchange, symbol, filled_price, filled_amount)
 
             elif status == "open":
-                # prev_close가 0.1% 이상 변하면 주문 갱신
+                # prev_close가 0.5% 이상 변하면 주문 갱신
                 lpc = state["last_prev_close"]
-                if lpc > 0 and abs(prev_close - lpc) / lpc > 0.001:
+                if lpc > 0 and abs(prev_close - lpc) / lpc > 0.005:
                     logger.debug("[%s] prev_close 변경 (%.4f→%.4f), 주문 갱신", symbol, lpc, prev_close)
                     await _cancel_safe(exchange, state["entry_order_id"], symbol)
                     state["entry_order_id"] = None
