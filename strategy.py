@@ -232,7 +232,23 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
             logger.error("[%s] 주문 조회 오류: %s", symbol, e)
         return
 
-    # ── A: 신규 진입 주문 ─────────────────────────────────
+    # ── A: 신규 진입 주문 — 먼저 기존 주문 확인 (중복 방지) ──
+    try:
+        open_orders = await exchange.fetch_open_orders(symbol)
+        entry_orders = [o for o in open_orders if not o.get("reduceOnly", False)]
+        if len(entry_orders) > 1:
+            for o in entry_orders[1:]:
+                await _cancel_safe(exchange, o["id"], symbol)
+                logger.warning("[%s] 중복 주문 자동 취소: %s", symbol, o["id"])
+            entry_orders = entry_orders[:1]
+        if entry_orders:
+            state["entry_order_id"] = entry_orders[0]["id"]
+            state["last_prev_close"] = prev_close
+            logger.info("[%s] 기존 주문 발견, 상태 복원: %s", symbol, entry_orders[0]["id"])
+            return
+    except Exception as e:
+        logger.error("[%s] 중복 주문 확인 오류: %s", symbol, e)
+
     await _place_entry(exchange, symbol, prev_close)
 
 

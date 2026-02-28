@@ -8,6 +8,7 @@ def exchange():
     exc.amount_to_precision = MagicMock(side_effect=lambda sym, amt: amt)
     exc.price_to_precision = MagicMock(side_effect=lambda sym, price: price)
     exc.create_order = AsyncMock(return_value={"id": "order123"})
+    exc.fetch_open_orders = AsyncMock(return_value=[])
     return exc
 
 
