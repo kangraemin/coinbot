@@ -38,6 +38,27 @@ async def send_telegram(message: str) -> bool:
         return False
 
 
+async def send_entry_order_alert(
+    symbol: str,
+    entry_price: float,
+    amount: float,
+    tp_price: float,
+    sl_price: float,
+) -> None:
+    """진입 리밋 주문 배치 알림."""
+    coin = symbol.split("/")[0]
+    notional = entry_price * amount
+    msg = (
+        f"🟡 *coinbot 진입 주문 대기*\n"
+        f"코인: {coin}\n"
+        f"주문가: {entry_price:,.4f} USDT\n"
+        f"수량: {amount:.6f} ({notional:,.2f} USDT)\n"
+        f"익절: {tp_price:,.4f}\n"
+        f"손절: {sl_price:,.4f}\n"
+    )
+    await send_telegram(msg)
+
+
 async def send_trade_alert(
     side: str,
     price: float,

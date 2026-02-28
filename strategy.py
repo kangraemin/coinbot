@@ -81,6 +81,9 @@ async def _place_entry(exchange, symbol: str, prev_close: float) -> None:
         logger.warning("[%s] 최소 주문금액 미달 (%.2f USDT notional)", symbol, amount * entry_price)
         return
 
+    tp_price_approx = entry_price * (1 + params["tp_pct"] / 100)
+    sl_price_approx = entry_price * (1 - params["sl_pct"] / 100)
+
     try:
         order = await exchange.create_order(
             symbol, "limit", "buy", amount, entry_price,
@@ -91,6 +94,9 @@ async def _place_entry(exchange, symbol: str, prev_close: float) -> None:
         logger.info(
             "[%s] 진입 주문 — %.6f @ %.4f (prev_close=%.4f, -%.1f%%)",
             symbol, amount, entry_price, prev_close, params["entry_pct"],
+        )
+        await report.send_entry_order_alert(
+            symbol, entry_price, amount, tp_price_approx, sl_price_approx
         )
     except Exception as e:
         logger.error("[%s] 진입 주문 실패: %s", symbol, e)
