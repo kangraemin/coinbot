@@ -1,16 +1,16 @@
-"""EMA 크로스 + ADX + 펀딩레이트 추세 추종 백테스팅 (V2).
+"""RSI 다이버전스 + 볼륨 확인 모멘텀 반전 백테스팅 (V3).
 
-20년차 트레이더 합의 전략:
-  롱: EMA20 > EMA50 골든크로스 + ADX > 20 + 펀딩레이트 < 0.05% (과열 아님)
-  숏: EMA20 < EMA50 데드크로스 + ADX > 20 + 펀딩레이트 > -0.05% (과열 아님)
+전략:
+  롱: 불리시 다이버전스 + MACD 히스토그램 음→양 전환 + 볼륨 급증 + OBV 상승
+  숏: 베어리시 다이버전스 + MACD 히스토그램 양→음 전환 + 볼륨 급증 + OBV 하락
 
-  TP: 진입가 ± ATR × 3.0
-  SL: 진입가 ∓ ATR × 1.5
-  청산: TP/SL/반대크로스/5일 타임아웃
+  TP: 진입가 ± ATR × 2.5
+  SL: 진입가 ∓ ATR × 1.2
+  청산: TP/SL/RSI 과열(롱>75, 숏<25)/48시간 타임아웃
 
 사용법:
-  python backtest_v2.py          # 기본 90일
-  python backtest_v2.py 180      # 180일
+  python backtest_v3.py          # 기본 90일
+  python backtest_v3.py 365      # 365일
 """
 
 import sys
@@ -18,7 +18,10 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import ccxt
+import numpy as np
 import pandas as pd
 import ta as ta_lib
 
@@ -28,15 +31,19 @@ import config as cfg
 BACKTEST_DAYS: int = 90
 COMMISSION_RATE: float = 0.0002
 INITIAL_BALANCE: float = 10_000
-MAX_HOLD_CANDLES: int = 480    # 최대 보유 5일 (추세 추종은 더 오래 들고 감)
+MAX_HOLD_CANDLES: int = 192    # 48시간 (15분 × 192)
 
-EMA_FAST: int = 20
-EMA_SLOW: int = 50
-ADX_MIN: float = 20.0
-TP_ATR_MULT: float = 3.0
-SL_ATR_MULT: float = 1.5
-FUNDING_LONG_MAX: float = 0.0005    # 0.05%: 롱 과열 차단
-FUNDING_SHORT_MIN: float = -0.0005  # -0.05%: 숏 과열 차단
+RSI_PERIOD: int = 14
+MACD_FAST: int = 12
+MACD_SLOW: int = 26
+MACD_SIGNAL: int = 9
+DIVERGENCE_LOOKBACK: int = 20
+VOLUME_MULT: float = 1.2
+OBV_SMA: int = 10
+TP_ATR_MULT: float = 2.5
+SL_ATR_MULT: float = 1.2
+RSI_EXIT_LONG: float = 75.0
+RSI_EXIT_SHORT: float = 25.0
 CANDLE_WARMUP: int = 60
 
 
@@ -74,92 +81,85 @@ def fetch_ohlcv(days: int = BACKTEST_DAYS) -> pd.DataFrame:
     )
 
 
-def fetch_funding_rates(days: int = BACKTEST_DAYS) -> pd.DataFrame:
-    """펀딩레이트 이력 수집 (8시간 간격, 인증 불필요)."""
-    exchange = ccxt.binanceusdm()
-    since_ms = int(
-        (datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000
-    )
-    all_rates: list = []
-
-    print("펀딩레이트 수집 중", end="", flush=True)
-    while True:
-        batch = exchange.fetch_funding_rate_history(
-            cfg.SYMBOL, since=since_ms, limit=1000
-        )
-        if not batch:
-            break
-        all_rates.extend(batch)
-        if len(batch) < 1000:
-            break
-        since_ms = batch[-1]["timestamp"] + 1
-        print(".", end="", flush=True)
-        time.sleep(0.1)
-
-    print(f" {len(all_rates)}건")
-    rows = [
-        {"timestamp": r["timestamp"], "funding_rate": r["fundingRate"]}
-        for r in all_rates
-    ]
-    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["timestamp", "funding_rate"])
-    return df.sort_values("timestamp").reset_index(drop=True)
-
-
 # ── 지표 계산 ─────────────────────────────────────────
 
-def add_indicators(
-    df_candles: pd.DataFrame, df_funding: pd.DataFrame
-) -> pd.DataFrame:
+def add_indicators(df_candles: pd.DataFrame) -> pd.DataFrame:
     df = df_candles.copy()
-    close, high, low = df["close"], df["high"], df["low"]
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
+    volume = df["volume"]
 
-    # EMA 크로스
-    df["ema_fast"] = ta_lib.trend.EMAIndicator(close, window=EMA_FAST).ema_indicator()
-    df["ema_slow"] = ta_lib.trend.EMAIndicator(close, window=EMA_SLOW).ema_indicator()
-    df["ema_fast_prev"] = df["ema_fast"].shift(1)
-    df["ema_slow_prev"] = df["ema_slow"].shift(1)
+    # RSI(14)
+    df["rsi"] = ta_lib.momentum.RSIIndicator(close, window=RSI_PERIOD).rsi()
 
-    # ADX (14)
-    df["adx"] = ta_lib.trend.ADXIndicator(
-        high, low, close, window=cfg.ADX_PERIOD
-    ).adx()
+    # MACD 히스토그램 (fast=12, slow=26, signal=9)
+    macd = ta_lib.trend.MACD(
+        close,
+        window_fast=MACD_FAST,
+        window_slow=MACD_SLOW,
+        window_sign=MACD_SIGNAL,
+    )
+    df["macd_hist"] = macd.macd_diff()
+    df["macd_hist_prev"] = df["macd_hist"].shift(1)
 
-    # ATR (14)
+    # ATR(14)
     df["atr"] = ta_lib.volatility.AverageTrueRange(
         high, low, close, window=cfg.ATR_PERIOD
     ).average_true_range()
 
-    # 크로스 감지: 전봉 EMA 역전 → 현봉 정배열
-    df["long_cross"] = (
-        (df["ema_fast"] > df["ema_slow"])
-        & (df["ema_fast_prev"] <= df["ema_slow_prev"])
-    )
-    df["short_cross"] = (
-        (df["ema_fast"] < df["ema_slow"])
-        & (df["ema_fast_prev"] >= df["ema_slow_prev"])
-    )
+    # 볼륨 20봉 이동평균
+    df["vol_sma20"] = volume.rolling(window=DIVERGENCE_LOOKBACK).mean()
 
-    # 펀딩레이트 병합 — 캔들 시간 기준 직전 값(backward fill)
-    if not df_funding.empty:
-        df = pd.merge_asof(
-            df.sort_values("timestamp"),
-            df_funding[["timestamp", "funding_rate"]].sort_values("timestamp"),
-            on="timestamp",
-            direction="backward",
-        )
-    else:
-        df["funding_rate"] = 0.0
+    # OBV & OBV SMA(10)
+    df["obv"] = ta_lib.volume.OnBalanceVolumeIndicator(close, volume).on_balance_volume()
+    df["obv_sma10"] = df["obv"].rolling(window=OBV_SMA).mean()
 
-    df["funding_rate"] = df["funding_rate"].fillna(0.0)
+    # ── 다이버전스 탐지 ─────────────────────────────
+    # 각 봉에서 과거 DIVERGENCE_LOOKBACK봉 내 스윙 로우/하이와 그 시점의 RSI 기록
+    rsi_vals = df["rsi"].values
+    low_vals = df["low"].values
+    high_vals = df["high"].values
+    n = len(df)
+
+    past_swing_low = np.full(n, np.nan)
+    rsi_at_swing_low = np.full(n, np.nan)
+    past_swing_high = np.full(n, np.nan)
+    rsi_at_swing_high = np.full(n, np.nan)
+
+    for i in range(DIVERGENCE_LOOKBACK, n):
+        ws = i - DIVERGENCE_LOOKBACK
+        we = i  # 현재 봉 제외
+
+        window_rsi = rsi_vals[ws:we]
+        if np.any(np.isnan(window_rsi)):
+            continue
+
+        window_lows = low_vals[ws:we]
+        window_highs = high_vals[ws:we]
+
+        min_idx = int(np.argmin(window_lows))
+        past_swing_low[i] = window_lows[min_idx]
+        rsi_at_swing_low[i] = window_rsi[min_idx]
+
+        max_idx = int(np.argmax(window_highs))
+        past_swing_high[i] = window_highs[max_idx]
+        rsi_at_swing_high[i] = window_rsi[max_idx]
+
+    df["past_swing_low"] = past_swing_low
+    df["rsi_at_swing_low"] = rsi_at_swing_low
+    df["past_swing_high"] = past_swing_high
+    df["rsi_at_swing_high"] = rsi_at_swing_high
+
     return df.reset_index(drop=True)
 
 
 # ── 백테스팅 시뮬레이션 ───────────────────────────────
 
 def run_backtest(df: pd.DataFrame) -> list[dict]:
-    """EMA 크로스 신호로 롱/숏 진입/청산 시뮬레이션.
+    """RSI 다이버전스 신호로 롱/숏 진입/청산 시뮬레이션.
 
-    청산 우선순위: SL > TP > 반대크로스 > 타임아웃
+    청산 우선순위: SL > TP > RSI 과열 청산 > 타임아웃
     """
     trades: list[dict] = []
     in_trade = False
@@ -170,10 +170,10 @@ def run_backtest(df: pd.DataFrame) -> list[dict]:
     for i in range(CANDLE_WARMUP, len(df)):
         row = df.iloc[i]
 
-        if pd.isna(row["adx"]) or pd.isna(row["ema_fast"]):
+        if pd.isna(row["rsi"]) or pd.isna(row["macd_hist"]) or pd.isna(row["atr"]):
             continue
 
-        # ── 보유 중: 방향별 청산 체크 ────────────────────
+        # ── 보유 중: 청산 체크 ────────────────────
         if in_trade:
             hold = i - entry_idx
             exit_price = result = None
@@ -181,27 +181,27 @@ def run_backtest(df: pd.DataFrame) -> list[dict]:
             if side == "long":
                 hit_sl = bool(row["low"] <= sl)
                 hit_tp = bool(row["high"] >= tp)
-                opp = bool(row["short_cross"])
+                rsi_exit = bool(row["rsi"] > RSI_EXIT_LONG)
 
                 if hit_sl and (not hit_tp or sl <= tp):
                     exit_price, result = sl, "loss"
                 elif hit_tp:
                     exit_price, result = tp, "win"
-                elif opp:
-                    exit_price, result = row["close"], "cross_exit"
+                elif rsi_exit:
+                    exit_price, result = row["close"], "rsi_exit"
                 elif hold >= MAX_HOLD_CANDLES:
                     exit_price, result = row["close"], "timeout"
             else:
                 hit_sl = bool(row["high"] >= sl)
                 hit_tp = bool(row["low"] <= tp)
-                opp = bool(row["long_cross"])
+                rsi_exit = bool(row["rsi"] < RSI_EXIT_SHORT)
 
                 if hit_sl and (not hit_tp or sl >= tp):
                     exit_price, result = sl, "loss"
                 elif hit_tp:
                     exit_price, result = tp, "win"
-                elif opp:
-                    exit_price, result = row["close"], "cross_exit"
+                elif rsi_exit:
+                    exit_price, result = row["close"], "rsi_exit"
                 elif hold >= MAX_HOLD_CANDLES:
                     exit_price, result = row["close"], "timeout"
 
@@ -223,25 +223,59 @@ def run_backtest(df: pd.DataFrame) -> list[dict]:
                     "result": result,
                     "pnl_pct": round(raw_pnl - fee_pct, 4),
                     "hold": hold,
-                    "funding_at_entry": df.iloc[entry_idx]["funding_rate"],
                 })
                 in_trade = False
 
-        # ── 미보유: EMA 크로스 + 필터 체크 ──────────────
+        # ── 미보유: 다이버전스 진입 신호 체크 ──────────
         if not in_trade:
-            adx_ok = bool(row["adx"] > ADX_MIN)
-            fr = float(row["funding_rate"])
+            # 다이버전스 계산값 유효 여부 확인
+            if (
+                pd.isna(row["past_swing_low"])
+                or pd.isna(row["rsi_at_swing_low"])
+                or pd.isna(row["macd_hist_prev"])
+                or pd.isna(row["vol_sma20"])
+                or pd.isna(row["obv_sma10"])
+            ):
+                continue
 
-            if row["long_cross"] and adx_ok and fr < FUNDING_LONG_MAX:
-                entry_price = row["close"]
-                tp = entry_price + row["atr"] * TP_ATR_MULT
-                sl = entry_price - row["atr"] * SL_ATR_MULT
+            vol_ok = bool(row["volume"] > row["vol_sma20"] * VOLUME_MULT)
+
+            # 불리시 다이버전스: 가격 신저점 + RSI 상승
+            bullish_div = bool(
+                row["low"] < row["past_swing_low"]
+                and row["rsi"] > row["rsi_at_swing_low"]
+            )
+            macd_cross_up = bool(
+                row["macd_hist"] > 0 and row["macd_hist_prev"] <= 0
+            )
+            obv_rising = bool(row["obv"] > row["obv_sma10"])
+
+            if bullish_div and macd_cross_up and vol_ok and obv_rising:
+                entry_price = float(row["close"])
+                atr = float(row["atr"])
+                tp = entry_price + atr * TP_ATR_MULT
+                sl = entry_price - atr * SL_ATR_MULT
                 side, in_trade, entry_idx = "long", True, i
+                continue
 
-            elif row["short_cross"] and adx_ok and fr > FUNDING_SHORT_MIN:
-                entry_price = row["close"]
-                tp = entry_price - row["atr"] * TP_ATR_MULT
-                sl = entry_price + row["atr"] * SL_ATR_MULT
+            # 베어리시 다이버전스: 가격 신고점 + RSI 하락
+            if pd.isna(row["rsi_at_swing_high"]):
+                continue
+
+            bearish_div = bool(
+                row["high"] > row["past_swing_high"]
+                and row["rsi"] < row["rsi_at_swing_high"]
+            )
+            macd_cross_down = bool(
+                row["macd_hist"] < 0 and row["macd_hist_prev"] >= 0
+            )
+            obv_falling = bool(row["obv"] < row["obv_sma10"])
+
+            if bearish_div and macd_cross_down and vol_ok and obv_falling:
+                entry_price = float(row["close"])
+                atr = float(row["atr"])
+                tp = entry_price - atr * TP_ATR_MULT
+                sl = entry_price + atr * SL_ATR_MULT
                 side, in_trade, entry_idx = "short", True, i
 
     return trades
@@ -256,21 +290,22 @@ def _side_stats(df_t: pd.DataFrame, label: str) -> None:
     profitable = df_t[df_t["pnl_pct"] > 0]
     wr = len(profitable) / len(df_t) * 100
     aw = profitable["pnl_pct"].mean() if len(profitable) else 0.0
-    al = df_t[df_t["pnl_pct"] <= 0]["pnl_pct"].mean() if len(df_t[df_t["pnl_pct"] <= 0]) else 0.0
+    losing = df_t[df_t["pnl_pct"] <= 0]
+    al = losing["pnl_pct"].mean() if len(losing) else 0.0
     rr = abs(aw / al) if al != 0 else float("inf")
     wins = len(df_t[df_t["result"] == "win"])
     losses = len(df_t[df_t["result"] == "loss"])
-    cx = len(df_t[df_t["result"] == "cross_exit"])
+    rsi_exits = len(df_t[df_t["result"] == "rsi_exit"])
     print(
         f"  [{label:5}] {len(df_t):2}건  승률 {wr:.0f}%  "
         f"익절 {aw:+.2f}%  손절 {al:.2f}%  RR {rr:.2f}  "
-        f"(TP {wins}/SL {losses}/크로스청산 {cx})"
+        f"(TP {wins}/SL {losses}/RSI청산 {rsi_exits})"
     )
 
 
 def print_report(trades: list[dict], days: int = BACKTEST_DAYS) -> None:
     if not trades:
-        print(f"\n거래 신호 없음 (펀딩레이트 필터가 너무 엄격할 수 있음)")
+        print("\n거래 신호 없음 (다이버전스 조건이 너무 엄격할 수 있음)")
         return
 
     df_t = pd.DataFrame(trades)
@@ -304,18 +339,18 @@ def print_report(trades: list[dict], days: int = BACKTEST_DAYS) -> None:
 
     wins = df_t[df_t["result"] == "win"]
     losses_sl = df_t[df_t["result"] == "loss"]
-    cross_exits = df_t[df_t["result"] == "cross_exit"]
+    rsi_exits = df_t[df_t["result"] == "rsi_exit"]
     timeouts = df_t[df_t["result"] == "timeout"]
 
     print("\n" + "=" * 60)
-    print(f"  백테스팅 V2 (추세추종)  {days}일 / {cfg.SYMBOL} {cfg.TIMEFRAME} / {cfg.LEVERAGE}x")
+    print(f"  백테스팅 V3 (RSI 다이버전스)  {days}일 / {cfg.SYMBOL} {cfg.TIMEFRAME} / {cfg.LEVERAGE}x")
     print("=" * 60)
     start = df_t["entry_dt"].iloc[0].strftime("%Y-%m-%d")
     end = df_t["exit_dt"].iloc[-1].strftime("%Y-%m-%d")
     print(f"  기간     : {start} ~ {end}")
     print(
         f"  거래     : {len(df_t)}건  "
-        f"(TP {len(wins)} / SL {len(losses_sl)} / 크로스청산 {len(cross_exits)} / 타임아웃 {len(timeouts)})"
+        f"(TP {len(wins)} / SL {len(losses_sl)} / RSI청산 {len(rsi_exits)} / 타임아웃 {len(timeouts)})"
     )
     print(f"  승률     : {win_rate:.1f}%  (수익 거래 기준)")
     print(f"  평균 수익 : +{avg_win:.2f}%")
@@ -330,10 +365,11 @@ def print_report(trades: list[dict], days: int = BACKTEST_DAYS) -> None:
     _side_stats(shorts, "SHORT")
     print("=" * 60)
 
-    # V1 대비 요약
-    print(f"\n  ── V1 (평균회귀) 대비 ──")
-    print(f"  V1: 12건, 승률 16.7%, 누적 +0.4%, MDD -5.6%")
-    print(f"  V2: {len(df_t)}건, 승률 {win_rate:.1f}%, 누적 {final_return:+.1f}%, MDD -{max_dd:.1f}%")
+    # V1/V2 대비 요약
+    print(f"\n  ── V1/V2 대비 (365일 기준) ──")
+    print(f"  V1 (ADX 평균회귀): 80건, 승률 32.5%, 누적 -8.4%, MDD -21.2%, Sharpe -0.35")
+    print(f"  V2 (EMA 추세추종): 320건, 승률 36.6%, 누적 +20.3%, MDD -21.4%, Sharpe 0.65")
+    print(f"  V3 (RSI 다이버전스): {len(df_t)}건, 승률 {win_rate:.1f}%, 누적 {final_return:+.1f}%, MDD -{max_dd:.1f}%, Sharpe {sharpe:.2f}")
 
     # 최근 거래
     show = df_t.tail(15)
@@ -350,7 +386,7 @@ def print_report(trades: list[dict], days: int = BACKTEST_DAYS) -> None:
             f"{t['pnl_pct']:>+7.2f}%"
         )
 
-    out = Path("backtest_v2_trades.csv")
+    out = Path("backtest_v3_trades.csv")
     df_t.to_csv(out, index=False)
     print(f"\n  전체 내역 → {out}")
 
@@ -360,7 +396,6 @@ def print_report(trades: list[dict], days: int = BACKTEST_DAYS) -> None:
 if __name__ == "__main__":
     days = int(sys.argv[1]) if len(sys.argv) > 1 else BACKTEST_DAYS
     df_ohlcv = fetch_ohlcv(days)
-    df_funding = fetch_funding_rates(days)
-    df = add_indicators(df_ohlcv, df_funding)
+    df = add_indicators(df_ohlcv)
     trades = run_backtest(df)
     print_report(trades, days)

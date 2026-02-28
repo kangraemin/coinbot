@@ -10,6 +10,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import ccxt
 import pandas as pd
 import ta as ta_lib

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-DATA_DIR = "data"
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 TAKER_FEE_RATE = 0.0005
 
 ENTRY_PCTS = [0.3, 0.5, 0.8, 1.0, 1.5]

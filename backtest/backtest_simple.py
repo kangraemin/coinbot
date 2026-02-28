@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DATA_DIR = "data"
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
 # 수수료: 0.05% taker × 레버리지 × 2 (진입+청산) → 단방향 레버리지 적용
 TAKER_FEE_RATE = 0.0005
