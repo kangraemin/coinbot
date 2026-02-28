@@ -8,9 +8,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── API ──────────────────────────────────────────────
-API_KEY: str = os.getenv("API_KEY", "")
-API_SECRET: str = os.getenv("API_SECRET", "")
 TESTNET: bool = os.getenv("TESTNET", "true").lower() == "true"
+
+_key_var = "TESTNET_API_KEY" if TESTNET else "REAL_API_KEY"
+_secret_var = "TESTNET_API_SECRET" if TESTNET else "REAL_API_SECRET"
+API_KEY: str = os.getenv(_key_var, "")
+API_SECRET: str = os.getenv(_secret_var, "")
 
 # ── Telegram ─────────────────────────────────────────
 TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
