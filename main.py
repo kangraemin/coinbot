@@ -66,11 +66,11 @@ async def daily_report_loop() -> None:
     while True:
         try:
             now = datetime.now(KST)
-            # 다음 자정까지 대기
-            next_midnight = (now + timedelta(days=1)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            wait_sec = (next_midnight - now).total_seconds()
+            # 다음 오전 7시까지 대기
+            next_7am = now.replace(hour=7, minute=0, second=0, microsecond=0)
+            if now >= next_7am:
+                next_7am += timedelta(days=1)
+            wait_sec = (next_7am - now).total_seconds()
             logger.info("일일 리포트까지 %.0f초 대기", wait_sec)
             await asyncio.sleep(wait_sec)
 
