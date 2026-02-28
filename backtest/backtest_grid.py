@@ -136,9 +136,13 @@ def calc_stats(trades, equity_curve, entry_pct, tp_pct, sl_pct, leverage, pos_ra
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="grid_results.csv")
     parser.add_argument("--coin", default="btc", help="코인 심볼 소문자 (기본: btc)")
+    parser.add_argument("--output", default=None)
     args = parser.parse_args()
+    if args.output is None:
+        results_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+        os.makedirs(results_dir, exist_ok=True)
+        args.output = os.path.join(results_dir, f"grid_results_{args.coin}.csv")
 
     print(f"[{args.coin.upper()}] 데이터 로드 중...")
     df = load_data(args.coin)

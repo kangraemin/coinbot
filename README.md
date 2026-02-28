@@ -93,7 +93,7 @@ python backtest_grid.py --coin eth --output ../grid_results_eth.csv
 | 균형형 | 1.5% | 3.0% | 0.5% | 7x | +161.56% | 22.7% | 7.11 | 145건 |
 | 안전형 | 1.0% | 1.5% | 0.5% | 7x | +101.37% | 14.6% | 6.95 | 454건 |
 
-전체 분석 보고서: [`analysis_report.md`](analysis_report.md)
+전체 분석 보고서: [`results/analysis_report.md`](results/analysis_report.md)
 
 ---
 
