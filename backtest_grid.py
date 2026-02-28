@@ -24,7 +24,7 @@ POS_RATIOS = [10, 20, 30]
 
 def load_data() -> pd.DataFrame:
     frames = []
-    for year in [2025, 2026]:
+    for year in [2022, 2023, 2024, 2025, 2026]:
         path = os.path.join(DATA_DIR, f"btc_1m_{year}.parquet")
         if os.path.exists(path):
             frames.append(pd.read_parquet(path))
