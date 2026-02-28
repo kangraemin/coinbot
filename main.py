@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 from collections import deque
+from datetime import datetime, timezone, timedelta
 
 import config as cfg
 import report
@@ -59,6 +60,31 @@ async def data_loop(exchange) -> None:
             await asyncio.sleep(cfg.RECONNECT_DELAY)
 
 
+async def daily_report_loop() -> None:
+    """매일 자정(KST)에 일일 리포트를 발송한다."""
+    KST = timezone(timedelta(hours=9))
+    while True:
+        try:
+            now = datetime.now(KST)
+            # 다음 자정까지 대기
+            next_midnight = (now + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            wait_sec = (next_midnight - now).total_seconds()
+            logger.info("일일 리포트까지 %.0f초 대기", wait_sec)
+            await asyncio.sleep(wait_sec)
+
+            from journal import get_daily_trades
+            trades = get_daily_trades()
+            await report.send_daily_report(trades)
+            logger.info("일일 리포트 발송 완료")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("일일 리포트 루프 오류: %s", e)
+            await asyncio.sleep(60)
+
+
 async def main() -> None:
     """메인 루프: 거래소 초기화 → 캔들 로드 → 루프 실행."""
     exchange = create_exchange()
@@ -76,6 +102,7 @@ async def main() -> None:
             data_loop(exchange),
             strategy_loop(exchange, shared_state),
             risk_loop(exchange, shared_state),
+            daily_report_loop(),
         )
     except asyncio.CancelledError:
         logger.info("봇 종료 요청 수신")
