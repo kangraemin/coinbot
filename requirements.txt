@@ -2,5 +2,5 @@ ccxt[pro]==4.2.15
 pandas>=2.1.0
 ta>=0.11.0
 python-dotenv>=1.0.0
-aiohttp>=3.9.0
+aiohttp==3.9.5
 pyarrow>=14.0.0
