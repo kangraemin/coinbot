@@ -215,10 +215,46 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
     await _place_entry(exchange, symbol, prev_close)
 
 
+async def _restore_state(exchange) -> None:
+    """재시작 시 기존 미체결 주문/포지션을 _pos에 복원한다."""
+    for symbol in cfg.SYMBOLS:
+        state = _pos[symbol]
+        try:
+            # 기존 포지션 확인
+            positions = await exchange.fetch_positions([symbol])
+            open_pos = next(
+                (p for p in positions if abs(float(p.get("contracts") or 0)) > 1e-8),
+                None,
+            )
+            if open_pos:
+                state["has_position"] = True
+                state["entry_price"] = float(open_pos.get("entryPrice") or 0)
+                state["amount"] = abs(float(open_pos.get("contracts") or 0))
+                logger.info("[%s] 기존 포지션 복원 — %.6f @ %.4f", symbol, state["amount"], state["entry_price"])
+                continue
+
+            # 기존 진입 주문 확인 (non-reduceOnly)
+            orders = await exchange.fetch_open_orders(symbol)
+            entry_orders = [o for o in orders if not o.get("reduceOnly", False)]
+            if entry_orders:
+                # 가장 최근 주문 1개만 남기고 나머지 취소
+                entry_orders.sort(key=lambda o: o.get("timestamp", 0), reverse=True)
+                for dup in entry_orders[1:]:
+                    await _cancel_safe(exchange, dup["id"], symbol)
+                    logger.info("[%s] 중복 진입 주문 취소: %s", symbol, dup["id"])
+                kept = entry_orders[0]
+                state["entry_order_id"] = kept["id"]
+                state["last_prev_close"] = float(kept.get("price", 0)) / (1 - cfg.ENTRY_DROP_PCT / 100)
+                logger.info("[%s] 기존 진입 주문 복원: %s @ %.4f", symbol, kept["id"], kept.get("price"))
+        except Exception as e:
+            logger.error("[%s] 상태 복원 오류: %s", symbol, e)
+
+
 async def strategy_loop(exchange, shared_state: dict) -> None:
     """전략 메인 루프 — 10초마다 모든 심볼 순회."""
     logger.info("전략 루프 시작 — %s", cfg.SYMBOLS)
     await asyncio.sleep(5)  # 초기 캔들 로드 대기
+    await _restore_state(exchange)  # 재시작 시 기존 상태 복원
 
     while True:
         try:
