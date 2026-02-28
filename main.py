@@ -125,10 +125,15 @@ async def main() -> None:
 
         symbols_str = " / ".join(s.split("/")[0] for s in cfg.SYMBOLS)
         logger.info("coinbot 시작 — %s %s", symbols_str, cfg.TIMEFRAME)
+        param_lines = "\n".join(
+            f"  {s.split('/')[0]}: -{p.get('entry_pct', cfg.ENTRY_DROP_PCT)}% | TP +{p.get('tp_pct', cfg.TP_PCT)}% | SL -{p.get('sl_pct', cfg.SL_PCT)}%"
+            for s in cfg.SYMBOLS
+            for p in [cfg.SYMBOL_PARAMS.get(s, {})]
+        )
         await report.send_telegram(
             f"🤖 *coinbot 시작*\n"
             f"심볼: {symbols_str}\n"
-            f"전략: prev\\_close -{cfg.ENTRY_DROP_PCT}% 진입 | TP +{cfg.TP_PCT}% | SL -{cfg.SL_PCT}%\n"
+            f"파라미터 (코인별):\n{param_lines}\n"
             f"레버리지: {cfg.LEVERAGE}x | 포지션 비율: {int(cfg.POSITION_RATIO * 100)}%/코인"
         )
 

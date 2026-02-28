@@ -51,9 +51,20 @@ async def _cancel_safe(exchange, order_id: str, symbol: str) -> None:
         pass
 
 
+def _sym_params(symbol: str) -> dict:
+    """심볼별 파라미터 반환 (없으면 전역 기본값)."""
+    p = cfg.SYMBOL_PARAMS.get(symbol, {})
+    return {
+        "entry_pct": p.get("entry_pct", cfg.ENTRY_DROP_PCT),
+        "tp_pct":    p.get("tp_pct",    cfg.TP_PCT),
+        "sl_pct":    p.get("sl_pct",    cfg.SL_PCT),
+    }
+
+
 async def _place_entry(exchange, symbol: str, prev_close: float) -> None:
     """진입 리밋 주문 발행."""
-    entry_price = prev_close * (1 - cfg.ENTRY_DROP_PCT / 100)
+    params = _sym_params(symbol)
+    entry_price = prev_close * (1 - params["entry_pct"] / 100)
 
     balance = await _get_total_balance(exchange)
     if balance <= 0:
@@ -79,7 +90,7 @@ async def _place_entry(exchange, symbol: str, prev_close: float) -> None:
         _pos[symbol]["last_prev_close"] = prev_close
         logger.info(
             "[%s] 진입 주문 — %.6f @ %.4f (prev_close=%.4f, -%.1f%%)",
-            symbol, amount, entry_price, prev_close, cfg.ENTRY_DROP_PCT,
+            symbol, amount, entry_price, prev_close, params["entry_pct"],
         )
     except Exception as e:
         logger.error("[%s] 진입 주문 실패: %s", symbol, e)
@@ -87,8 +98,9 @@ async def _place_entry(exchange, symbol: str, prev_close: float) -> None:
 
 async def _place_tp_sl(exchange, symbol: str, entry_price: float, amount: float) -> None:
     """TP 리밋 매도 + SL 스탑마켓 주문 발행."""
-    tp_price = entry_price * (1 + cfg.TP_PCT / 100)
-    sl_price = entry_price * (1 - cfg.SL_PCT / 100)
+    params = _sym_params(symbol)
+    tp_price = entry_price * (1 + params["tp_pct"] / 100)
+    sl_price = entry_price * (1 - params["sl_pct"] / 100)
 
     try:
         tp_price = float(exchange.price_to_precision(symbol, tp_price))

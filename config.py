@@ -32,12 +32,23 @@ TIMEFRAME: str = "1m"
 LEVERAGE: int = 7
 MARGIN_TYPE: str = "isolated"
 
-# ── 전략 파라미터 ─────────────────────────────────────
+# ── 전략 파라미터 (코인별 최적화, 7x/20% 5년 백테스트 기준) ──────────────
+# 공통 기본값
 ENTRY_DROP_PCT: float = 1.5   # prev_close 대비 이 % 이상 하락 시 진입
-TP_PCT: float = 3.0           # 익절: 진입가 대비 +3%
-SL_PCT: float = 0.5           # 손절: 진입가 대비 -0.5%
+TP_PCT: float = 3.0           # 익절 기본값
+SL_PCT: float = 0.5           # 손절 기본값
 POSITION_RATIO: float = 0.20  # 코인당 자본 비율 (20%)
 MAX_POSITIONS: int = 4        # 코인당 1개
+
+# 심볼별 파라미터 오버라이드 (없으면 위 기본값 사용)
+# BTC: sl 1.5% — 노이즈 손절 방지, 승률 26.9%→45.2%, 수익 +93%→+112%
+# ETH: tp 2.0% — 빠른 익절, MDD 17.9%→12.5%, 수익 +140%→+153%
+SYMBOL_PARAMS: dict[str, dict] = {
+    "BTC/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 1.5},
+    "ETH/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 2.0, "sl_pct": 0.5},
+    "SOL/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 0.5},
+    "XRP/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 0.5},
+}
 
 # ── 리스크 ───────────────────────────────────────────
 MAX_DAILY_LOSS_PCT: float = -5.0
