@@ -1,0 +1,4 @@
+window,train_start,train_end,test_end,train_sharpe,oos_n,oos_n_tp,oos_n_sl,oos_n_timeout,oos_win_rate,oos_avg_win,oos_avg_loss,oos_expectancy,oos_total_ret,oos_mdd,oos_sharpe,oos_profit_factor,oos_max_consec_loss,oos_pos_size,param_entry_pct,param_rsi_thresh,param_sl_atr,param_rr_ratio,param_hurst_thresh,param_use_ema200
+2,2022-07-01,2024-01-01,2024-07-01,1.385,8,1,5,2,12.5,1.765,-1.254,-0.8767,-0.33,0.42,-2.241,0.201,7,0.0475,1.5,45,1.5,2.0,0.68,False
+3,2023-01-01,2024-07-01,2025-01-01,2.472,20,7,11,2,35.0,1.572,-0.586,0.1691,0.23,0.29,0.573,1.444,5,0.0672,0.3,35,2.0,2.0,0.68,True
+4,2023-07-01,2025-01-01,2025-07-01,2.403,16,2,12,2,12.5,2.586,-1.043,-0.5891,-0.52,0.66,-1.529,0.354,9,0.0548,1.0,45,2.0,2.0,0.68,False
