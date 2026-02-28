@@ -69,6 +69,26 @@ async def data_loop(exchange, symbol: str) -> None:
             await asyncio.sleep(cfg.RECONNECT_DELAY)
 
 
+async def heartbeat_loop(exchange) -> None:
+    """1시간마다 봇 상태를 Telegram으로 알린다."""
+    while True:
+        try:
+            await asyncio.sleep(3600)
+            bal = await exchange.fetch_balance()
+            free = float(bal.get("USDT", {}).get("free", 0))
+            total = float(bal.get("USDT", {}).get("total", 0))
+            symbols_str = " / ".join(s.split("/")[0] for s in cfg.SYMBOLS)
+            await report.send_telegram(
+                f"🟢 *coinbot 가동 중*\n"
+                f"심볼: {symbols_str}\n"
+                f"잔액: {free:,.2f} / {total:,.2f} USDT"
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("하트비트 루프 오류: %s", e)
+
+
 async def daily_report_loop(exchange) -> None:
     """매일 오전 7시(KST)에 일일 리포트를 발송한다."""
     KST = timezone(timedelta(hours=9))
@@ -117,6 +137,7 @@ async def main() -> None:
             strategy_loop(exchange, shared_state),
             risk_loop(exchange, shared_state),
             daily_report_loop(exchange),
+            heartbeat_loop(exchange),
         )
     except asyncio.CancelledError:
         logger.info("봇 종료 요청 수신")
