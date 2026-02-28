@@ -36,7 +36,8 @@ ATR_PERIOD: int = 14
 ADX_PERIOD: int = 14
 
 # ── 진입 조건 임계값 ────────────────────────────────
-RSI_THRESHOLD: float = 35.0
+RSI_THRESHOLD: float = 35.0         # 롱 진입: RSI ≤ 이 값 (과매도)
+RSI_OVERBOUGHT: float = 65.0        # 숏 진입: RSI ≥ 이 값 (과매수)
 ADX_TREND_THRESHOLD: float = 25.0   # ADX >= 25 → 추세장, 평균회귀 스킵
 
 # ── 익절/손절 ────────────────────────────────────────
