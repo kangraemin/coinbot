@@ -218,9 +218,13 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
                 lpc = state["last_prev_close"]
                 if lpc > 0 and abs(prev_close - lpc) / lpc > 0.005:
                     logger.debug("[%s] prev_close 변경 (%.4f→%.4f), 주문 갱신", symbol, lpc, prev_close)
+                    params = _sym_params(symbol)
+                    old_entry = lpc * (1 - params["entry_pct"] / 100)
+                    new_entry = prev_close * (1 - params["entry_pct"] / 100)
                     await _cancel_safe(exchange, state["entry_order_id"], symbol)
                     state["entry_order_id"] = None
                     state["last_prev_close"] = 0.0
+                    await report.send_order_update_alert(symbol, lpc, prev_close, old_entry, new_entry)
                     await _place_entry(exchange, symbol, prev_close)
 
             else:

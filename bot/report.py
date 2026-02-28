@@ -59,6 +59,25 @@ async def send_entry_order_alert(
     await send_telegram(msg)
 
 
+async def send_order_update_alert(
+    symbol: str,
+    old_prev_close: float,
+    new_prev_close: float,
+    old_entry_price: float,
+    new_entry_price: float,
+) -> None:
+    """주문 갱신 알림 (prev_close 변동으로 재주문 시)."""
+    coin = symbol.split("/")[0]
+    change_pct = (new_prev_close - old_prev_close) / old_prev_close * 100
+    msg = (
+        f"🔄 *coinbot 주문 갱신*\n"
+        f"코인: {coin}\n"
+        f"기준가: {old_prev_close:,.4f} → {new_prev_close:,.4f} ({change_pct:+.2f}%)\n"
+        f"주문가: {old_entry_price:,.4f} → {new_entry_price:,.4f}\n"
+    )
+    await send_telegram(msg)
+
+
 async def send_trade_alert(
     side: str,
     price: float,
