@@ -128,6 +128,9 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
     sym = shared_state.get(symbol, {})
     prev_close = sym.get("prev_close", 0.0)
 
+    logger.info("[%s] handle — pos=%s entry_oid=%s",
+                symbol, state["has_position"], state["entry_order_id"])
+
     if prev_close <= 0:
         return
 
