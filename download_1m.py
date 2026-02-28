@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SYMBOL = "BTC/USDT:USDT"
+DEFAULT_SYMBOL = "BTC/USDT:USDT"
 TIMEFRAME = "1m"
 DATA_DIR = "data"
 LIMIT = 1000  # ccxt fetch_ohlcv 최대 한 번에 가져올 캔들 수
@@ -28,6 +28,7 @@ def fetch_ohlcv_range(
     exchange: ccxt.Exchange,
     since_ms: int,
     until_ms: int,
+    symbol: str = DEFAULT_SYMBOL,
 ) -> list[list]:
     """since_ms ~ until_ms 구간의 OHLCV 데이터를 모두 가져온다."""
     all_candles: list[list] = []
@@ -39,7 +40,7 @@ def fetch_ohlcv_range(
     while current < until_ms:
         try:
             candles = exchange.fetch_ohlcv(
-                SYMBOL, TIMEFRAME, since=current, limit=LIMIT
+                symbol, TIMEFRAME, since=current, limit=LIMIT
             )
         except Exception as e:
             logger.error("fetch_ohlcv 실패: %s", e)
@@ -83,10 +84,11 @@ def load_existing_parquet(path: str) -> pd.DataFrame | None:
         return None
 
 
-def download_year(exchange: ccxt.Exchange, year: int) -> None:
+def download_year(exchange: ccxt.Exchange, year: int, symbol: str = DEFAULT_SYMBOL) -> None:
     """특정 연도의 1분봉 데이터를 다운로드/업데이트한다."""
     os.makedirs(DATA_DIR, exist_ok=True)
-    path = os.path.join(DATA_DIR, f"btc_1m_{year}.parquet")
+    coin = symbol.split("/")[0].lower()
+    path = os.path.join(DATA_DIR, f"{coin}_1m_{year}.parquet")
 
     now = datetime.now(tz=timezone.utc)
     year_start = datetime(year, 1, 1, tzinfo=timezone.utc)
@@ -119,7 +121,7 @@ def download_year(exchange: ccxt.Exchange, year: int) -> None:
         logger.info("[%d] 이미 최신 상태", year)
         return
 
-    candles = fetch_ohlcv_range(exchange, since_ms, until_ms)
+    candles = fetch_ohlcv_range(exchange, since_ms, until_ms, symbol)
 
     if not candles:
         logger.info("[%d] 새 데이터 없음", year)
@@ -151,13 +153,19 @@ def download_year(exchange: ccxt.Exchange, year: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Binance USDM BTC/USDT 1분봉 데이터 다운로드"
+        description="Binance USDM 1분봉 데이터 다운로드"
     )
     parser.add_argument(
         "--years",
         type=int,
         default=2,
         help="다운로드할 연 수 (기본: 2)",
+    )
+    parser.add_argument(
+        "--symbol",
+        type=str,
+        default=DEFAULT_SYMBOL,
+        help="심볼 (기본: BTC/USDT:USDT)",
     )
     args = parser.parse_args()
 
@@ -166,12 +174,12 @@ def main() -> None:
     current_year = datetime.now(tz=timezone.utc).year
     target_years = [current_year - i for i in range(args.years - 1, -1, -1)]
 
-    logger.info("다운로드 대상 연도: %s", target_years)
+    logger.info("[%s] 다운로드 대상 연도: %s", args.symbol, target_years)
 
     for year in target_years:
-        download_year(exchange, year)
+        download_year(exchange, year, args.symbol)
 
-    logger.info("모든 다운로드 완료")
+    logger.info("[%s] 모든 다운로드 완료", args.symbol)
 
 
 if __name__ == "__main__":
