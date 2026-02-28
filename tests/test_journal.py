@@ -1,7 +1,7 @@
 import sqlite3
 import pytest
 
-import journal
+from bot import journal
 
 
 @pytest.fixture

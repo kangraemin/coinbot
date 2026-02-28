@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
-import strategy
+from bot import strategy
 import config as cfg
 
 SYMBOL = "BTC/USDT:USDT"
@@ -45,7 +45,7 @@ async def test_place_tp_sl(exchange):
         {"id": "sl_order_id"},
     ])
 
-    with patch("report.send_trade_alert", new_callable=AsyncMock) as mock_alert:
+    with patch("bot.report.send_trade_alert", new_callable=AsyncMock) as mock_alert:
         await strategy._place_tp_sl(exchange, SYMBOL, 50000.0, 0.1)
 
     assert exchange.create_order.call_count == 2
@@ -96,7 +96,7 @@ async def test_handle_symbol_flow_B_filled(exchange, shared_state):
         "average": 49250.0, "filled": 0.1,
     })
 
-    with patch("journal.record_trade", return_value=1) as mock_record, \
+    with patch("bot.journal.record_trade", return_value=1) as mock_record, \
          patch.object(strategy, "_place_tp_sl", new_callable=AsyncMock) as mock_tp_sl:
         await strategy._handle_symbol(exchange, SYMBOL, shared_state)
 
@@ -139,8 +139,8 @@ async def test_handle_symbol_flow_C(exchange, shared_state):
     exchange.fetch_positions = AsyncMock(return_value=[])
 
     with patch.object(strategy, "_cancel_safe", new_callable=AsyncMock) as mock_cancel, \
-         patch("journal.close_trade") as mock_close, \
-         patch("report.send_close_alert", new_callable=AsyncMock) as mock_alert:
+         patch("bot.journal.close_trade") as mock_close, \
+         patch("bot.report.send_close_alert", new_callable=AsyncMock) as mock_alert:
         await strategy._handle_symbol(exchange, SYMBOL, shared_state)
 
     assert mock_cancel.call_count == 2
