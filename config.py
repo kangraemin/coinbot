@@ -41,7 +41,6 @@ MAX_POSITIONS: int = 4        # 코인당 1개
 
 # ── 리스크 ───────────────────────────────────────────
 MAX_DAILY_LOSS_PCT: float = -5.0
-ORDER_TIMEOUT_MIN: int = 10   # 진입 주문 최대 대기 시간 (분)
 
 # ── 캔들 버퍼 ────────────────────────────────────────
 CANDLE_BUFFER_SIZE: int = 10
