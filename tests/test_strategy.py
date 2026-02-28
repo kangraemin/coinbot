@@ -62,12 +62,13 @@ async def test_place_tp_sl(exchange):
     assert tp_args[5] == {"reduceOnly": True, "timeInForce": "GTC"}
 
     # SL: STOP_MARKET sell with stopPrice
+    # BTC sl_pct=1.5% (SYMBOL_PARAMS 기준) → 50000 * 0.985 = 49250.0
     assert sl_args[0] == SYMBOL
     assert sl_args[1] == "STOP_MARKET"
     assert sl_args[2] == "sell"
     assert sl_args[3] == 0.1
     assert sl_args[4] is None
-    assert sl_args[5]["stopPrice"] == 49750.0
+    assert sl_args[5]["stopPrice"] == 49250.0
     assert sl_args[5]["reduceOnly"] is True
 
     mock_alert.assert_called_once()
@@ -108,10 +109,10 @@ async def test_handle_symbol_flow_B_filled(exchange, shared_state):
 
 
 async def test_handle_symbol_flow_B_price_change(exchange, shared_state):
-    """Flow B: pending order open + prev_close drifted >0.1% → cancel + re-place."""
+    """Flow B: pending order open + prev_close drifted >0.5% → cancel + re-place."""
     strategy._pos[SYMBOL]["entry_order_id"] = "order123"
     strategy._pos[SYMBOL]["last_prev_close"] = 50000.0
-    shared_state[SYMBOL] = {"prev_close": 50100.0}  # 0.2% change > 0.1%
+    shared_state[SYMBOL] = {"prev_close": 50300.0}  # 0.6% change > 0.5%
 
     exchange.fetch_order = AsyncMock(return_value={"status": "open"})
 
@@ -120,7 +121,7 @@ async def test_handle_symbol_flow_B_price_change(exchange, shared_state):
         await strategy._handle_symbol(exchange, SYMBOL, shared_state)
 
     mock_cancel.assert_called_once_with(exchange, "order123", SYMBOL)
-    mock_entry.assert_called_once_with(exchange, SYMBOL, 50100.0)
+    mock_entry.assert_called_once_with(exchange, SYMBOL, 50300.0)
 
 
 async def test_handle_symbol_flow_C(exchange, shared_state):
