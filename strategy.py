@@ -216,11 +216,11 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
 
 
 async def _restore_state(exchange) -> None:
-    """재시작 시 기존 미체결 주문/포지션을 _pos에 복원한다."""
+    """재시작 시 기존 진입 주문 취소 + 포지션만 복원."""
     for symbol in cfg.SYMBOLS:
         state = _pos[symbol]
         try:
-            # 기존 포지션 확인
+            # 기존 포지션 복원 (포지션이 있으면 새 진입 주문 안 냄)
             positions = await exchange.fetch_positions([symbol])
             open_pos = next(
                 (p for p in positions if abs(float(p.get("contracts") or 0)) > 1e-8),
@@ -230,24 +230,17 @@ async def _restore_state(exchange) -> None:
                 state["has_position"] = True
                 state["entry_price"] = float(open_pos.get("entryPrice") or 0)
                 state["amount"] = abs(float(open_pos.get("contracts") or 0))
-                logger.info("[%s] 기존 포지션 복원 — %.6f @ %.4f", symbol, state["amount"], state["entry_price"])
+                logger.info("[%s] 포지션 복원 — %.6f @ %.4f", symbol, state["amount"], state["entry_price"])
                 continue
 
-            # 기존 진입 주문 확인 (non-reduceOnly)
+            # 기존 진입 주문(non-reduceOnly) 전부 취소 — 재시작 시 항상 새로 주문
             orders = await exchange.fetch_open_orders(symbol)
-            entry_orders = [o for o in orders if not o.get("reduceOnly", False)]
-            if entry_orders:
-                # 가장 최근 주문 1개만 남기고 나머지 취소
-                entry_orders.sort(key=lambda o: o.get("timestamp", 0), reverse=True)
-                for dup in entry_orders[1:]:
-                    await _cancel_safe(exchange, dup["id"], symbol)
-                    logger.info("[%s] 중복 진입 주문 취소: %s", symbol, dup["id"])
-                kept = entry_orders[0]
-                state["entry_order_id"] = kept["id"]
-                state["last_prev_close"] = float(kept.get("price", 0)) / (1 - cfg.ENTRY_DROP_PCT / 100)
-                logger.info("[%s] 기존 진입 주문 복원: %s @ %.4f", symbol, kept["id"], kept.get("price"))
+            for o in orders:
+                if not o.get("reduceOnly", False):
+                    await _cancel_safe(exchange, o["id"], symbol)
+                    logger.info("[%s] 재시작 — 기존 진입 주문 취소: %s", symbol, o["id"])
         except Exception as e:
-            logger.error("[%s] 상태 복원 오류: %s", symbol, e)
+            logger.error("[%s] 상태 초기화 오류: %s", symbol, e)
 
 
 async def strategy_loop(exchange, shared_state: dict) -> None:
