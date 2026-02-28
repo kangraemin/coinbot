@@ -7,6 +7,7 @@ from collections import deque
 
 import config as cfg
 from exchange import create_exchange, setup_leverage
+from strategy import strategy_loop
 
 logging.basicConfig(format=cfg.LOG_FORMAT, level=cfg.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -55,12 +56,6 @@ async def data_loop(exchange) -> None:
             await asyncio.sleep(cfg.RECONNECT_DELAY)
 
 
-async def strategy_loop() -> None:
-    """전략 루프 스텁 — Phase 2에서 구현."""
-    while True:
-        await asyncio.sleep(1)
-
-
 async def risk_loop() -> None:
     """리스크 루프 스텁 — Phase 3에서 구현."""
     while True:
@@ -79,7 +74,7 @@ async def main() -> None:
 
         await asyncio.gather(
             data_loop(exchange),
-            strategy_loop(),
+            strategy_loop(exchange, shared_state),
             risk_loop(),
         )
     except asyncio.CancelledError:
