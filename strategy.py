@@ -1,20 +1,14 @@
-"""전략 B: ADX 레짐 필터 평균회귀 — 지표 계산, 진입 조건, 익절/손절.
+"""1분봉 하락 진입 전략 — prev_close -1.5% 리밋 롱, TP +3%, SL -0.5%.
 
-진입 조건 (4개):
-  1. ADX(14) < 25  — 횡보 레짐 (추세장에선 평균회귀 무효)
-  2. 가격 ≤ BB 하단(20, 2σ) — 과매도 구간 진입
-  3. RSI(14) ≤ 35  — 모멘텀 과매도 확인
-  4. RSI 반등 시작 — 바닥 확인 (rsi[0] > rsi[-1])
-
-익절: BB 중심선 (진정한 평균회귀 타겟)
-손절: 진입가 - ATR(14) × 1.5
+동작:
+  - 매 분봉 종료 시 prev_close 갱신
+  - 진입 트리거 = prev_close * (1 - ENTRY_DROP_PCT%)
+  - 리밋 매수 주문 → 체결 시 TP(리밋 매도) + SL(스탑마켓) 설정
+  - 포지션 종료 감지 → 저널 업데이트
 """
 
 import asyncio
 import logging
-
-import pandas as pd
-import ta as ta_lib
 
 import config as cfg
 import journal
@@ -22,259 +16,220 @@ import report
 
 logger = logging.getLogger(__name__)
 
-
-# 모든 지표 안정화에 필요한 최소 캔들 수 (ADX ~28, BB 20, RSI 14)
-_CANDLE_MIN = 50
-
-
-# ── 지표 계산 ────────────────────────────────────────
-
-
-def compute_indicators(shared_state: dict) -> dict | None:
-    """shared_state의 캔들 deque로 지표를 계산하여 반환한다."""
-    candles = shared_state["candles"]
-    if len(candles) < _CANDLE_MIN:
-        return None
-
-    df = pd.DataFrame(
-        list(candles),
-        columns=["timestamp", "open", "high", "low", "close", "volume"],
-    )
-
-    close = df["close"]
-    high = df["high"]
-    low = df["low"]
-
-    # Bollinger Bands (20, 2σ)
-    bb = ta_lib.volatility.BollingerBands(close, window=cfg.BB_PERIOD, window_dev=cfg.BB_STD)
-    bb_lower = bb.bollinger_lband()
-    bb_middle = bb.bollinger_mavg()  # 평균회귀 TP 타겟
-
-    # RSI (14)
-    rsi = ta_lib.momentum.RSIIndicator(close, window=cfg.RSI_PERIOD).rsi()
-
-    # ATR (14)
-    atr = ta_lib.volatility.AverageTrueRange(high, low, close, window=cfg.ATR_PERIOD).average_true_range()
-
-    # ADX (14) — 레짐 감지 (횡보 vs 추세)
-    adx = ta_lib.trend.ADXIndicator(high, low, close, window=cfg.ADX_PERIOD).adx()
-
-    indicators = {
-        "bb_lower": bb_lower.iloc[-1],
-        "bb_middle": bb_middle.iloc[-1],
-        "rsi": rsi.iloc[-1],
-        "rsi_prev": rsi.iloc[-2] if len(rsi) >= 2 else None,
-        "atr": atr.iloc[-1],
-        "adx": adx.iloc[-1],
+# ── 심볼별 포지션 상태 ────────────────────────────────
+_pos: dict[str, dict] = {
+    symbol: {
+        "has_position": False,
+        "trade_id": None,
+        "entry_price": 0.0,
+        "amount": 0.0,
+        "entry_order_id": None,   # 대기 중인 진입 주문
+        "tp_order_id": None,
+        "sl_order_id": None,
+        "last_prev_close": 0.0,   # 마지막으로 주문 낸 기준 prev_close
     }
-
-    # NaN 체크 — 지표 미완성 시 None 반환
-    if any(v is None or (isinstance(v, float) and pd.isna(v)) for v in indicators.values()):
-        return None
-
-    shared_state["indicators"] = indicators
-    return indicators
+    for symbol in cfg.SYMBOLS
+}
 
 
-# ── 진입 조건 체크 ───────────────────────────────────
+async def _get_total_balance(exchange) -> float:
+    """USDT 총 잔액 반환."""
+    try:
+        data = await exchange.fetch_balance()
+        return float(data.get("total", {}).get("USDT", 0) or 0)
+    except Exception as e:
+        logger.error("잔액 조회 실패: %s", e)
+        return 0.0
 
 
-def check_entry_conditions(price: float, indicators: dict) -> bool:
-    """4개 진입 조건 — ADX 레짐 + BB 하단 + RSI 과매도 + RSI 반등."""
-    # 1. ADX < 25 — 횡보 레짐 (평균회귀 유효 구간)
-    #    추세장(ADX >= 25)에서 평균회귀는 손절 반복으로 이어짐
-    if indicators["adx"] >= cfg.ADX_TREND_THRESHOLD:
-        return False
-
-    # 2. 가격 ≤ BB 하단 (20, 2σ) — 과매도 구간 진입
-    if price > indicators["bb_lower"]:
-        return False
-
-    # 3. RSI(14) ≤ 35 — 모멘텀 과매도 확인
-    if indicators["rsi"] > cfg.RSI_THRESHOLD:
-        return False
-
-    # 4. RSI 반등 시작 — 바닥 확인 (단순 하락 중 진입 방지)
-    if indicators["rsi_prev"] is None or indicators["rsi"] <= indicators["rsi_prev"]:
-        return False
-
-    return True
+async def _cancel_safe(exchange, order_id: str, symbol: str) -> None:
+    """주문 취소 — 이미 취소/체결된 경우 무시."""
+    try:
+        await exchange.cancel_order(order_id, symbol)
+        logger.debug("[%s] 주문 취소: %s", symbol, order_id)
+    except Exception:
+        pass
 
 
-# ── 주문 실행 ────────────────────────────────────────
+async def _place_entry(exchange, symbol: str, prev_close: float) -> None:
+    """진입 리밋 주문 발행."""
+    entry_price = prev_close * (1 - cfg.ENTRY_DROP_PCT / 100)
 
+    balance = await _get_total_balance(exchange)
+    if balance <= 0:
+        logger.warning("[%s] 잔액 없음, 주문 건너뜀", symbol)
+        return
 
-async def place_entry_order(exchange, price: float, indicators: dict) -> dict | None:
-    """지정가 매수 주문을 실행한다. 시장가 주문 금지."""
-    amount = cfg.TRADE_AMOUNT_USDT / price
+    raw_amount = balance * cfg.POSITION_RATIO * cfg.LEVERAGE / entry_price
+    try:
+        amount = float(exchange.amount_to_precision(symbol, raw_amount))
+    except Exception:
+        amount = round(raw_amount, 6)
+
+    if amount * entry_price < 10:
+        logger.warning("[%s] 최소 주문금액 미달 (%.2f USDT notional)", symbol, amount * entry_price)
+        return
 
     try:
         order = await exchange.create_order(
-            symbol=cfg.SYMBOL,
-            type="limit",
-            side="buy",
-            amount=amount,
-            price=price,
-            params={"postOnly": True},
+            symbol, "limit", "buy", amount, entry_price,
+            {"timeInForce": "GTC"},
         )
+        _pos[symbol]["entry_order_id"] = order["id"]
+        _pos[symbol]["last_prev_close"] = prev_close
         logger.info(
-            "매수 주문 생성 — 가격: %.2f, 수량: %.6f, 주문ID: %s",
-            price,
-            amount,
-            order["id"],
+            "[%s] 진입 주문 — %.6f @ %.4f (prev_close=%.4f, -%.1f%%)",
+            symbol, amount, entry_price, prev_close, cfg.ENTRY_DROP_PCT,
         )
-        return order
     except Exception as e:
-        logger.warning("매수 주문 실패: %s", e)
-        return None
+        logger.error("[%s] 진입 주문 실패: %s", symbol, e)
 
 
-async def place_tp_sl_orders(
-    exchange, entry_price: float, amount: float, atr: float, bb_middle: float
-) -> tuple[dict | None, dict | None]:
-    """익절(BB 중심선)/손절(ATR×1.5) 지정가 주문을 배치한다."""
-    tp_price = bb_middle                      # 평균회귀 타겟 = BB 중심선
-    sl_price = entry_price - atr * cfg.SL_ATR_MULT
+async def _place_tp_sl(exchange, symbol: str, entry_price: float, amount: float) -> None:
+    """TP 리밋 매도 + SL 스탑마켓 주문 발행."""
+    tp_price = entry_price * (1 + cfg.TP_PCT / 100)
+    sl_price = entry_price * (1 - cfg.SL_PCT / 100)
 
-    tp_order = None
-    sl_order = None
+    try:
+        tp_price = float(exchange.price_to_precision(symbol, tp_price))
+        sl_price = float(exchange.price_to_precision(symbol, sl_price))
+    except Exception:
+        tp_price = round(tp_price, 4)
+        sl_price = round(sl_price, 4)
 
-    # 익절 — 지정가 매도
     try:
         tp_order = await exchange.create_order(
-            symbol=cfg.SYMBOL,
-            type="limit",
-            side="sell",
-            amount=amount,
-            price=tp_price,
-            params={"postOnly": True},
+            symbol, "limit", "sell", amount, tp_price,
+            {"reduceOnly": True, "timeInForce": "GTC"},
         )
-        logger.info("익절 주문 — 가격: %.2f, 주문ID: %s", tp_price, tp_order["id"])
+        _pos[symbol]["tp_order_id"] = tp_order["id"]
+        logger.info("[%s] TP 주문 — @ %.4f", symbol, tp_price)
     except Exception as e:
-        logger.warning("익절 주문 실패: %s", e)
+        logger.error("[%s] TP 주문 실패: %s", symbol, e)
 
-    # 손절 — 스탑로스 지정가
     try:
         sl_order = await exchange.create_order(
-            symbol=cfg.SYMBOL,
-            type="stop",
-            side="sell",
-            amount=amount,
-            price=sl_price,
-            params={"stopPrice": sl_price},
+            symbol, "STOP_MARKET", "sell", amount, None,
+            {"stopPrice": sl_price, "reduceOnly": True},
         )
-        logger.info("손절 주문 — 가격: %.2f, 주문ID: %s", sl_price, sl_order["id"])
+        _pos[symbol]["sl_order_id"] = sl_order["id"]
+        logger.info("[%s] SL 주문 — @ %.4f", symbol, sl_price)
     except Exception as e:
-        logger.warning("손절 주문 실패: %s", e)
+        logger.error("[%s] SL 주문 실패: %s", symbol, e)
 
-    return tp_order, sl_order
+    await report.send_trade_alert(
+        "long", entry_price, amount, tp_price, sl_price, symbol=symbol
+    )
 
 
-# ── 전략 루프 ────────────────────────────────────────
+async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
+    """단일 심볼의 전략 상태를 처리한다."""
+    state = _pos[symbol]
+    sym = shared_state.get(symbol, {})
+    prev_close = sym.get("prev_close", 0.0)
+
+    if prev_close <= 0:
+        return
+
+    # ── C: 포지션 보유 중 → 종료 여부 확인 ──────────────
+    if state["has_position"]:
+        try:
+            positions = await exchange.fetch_positions([symbol])
+            open_pos = next(
+                (p for p in positions if abs(float(p.get("contracts") or 0)) > 1e-8),
+                None,
+            )
+
+            if open_pos is None:
+                logger.info("[%s] 포지션 종료 감지", symbol)
+
+                for oid in (state["tp_order_id"], state["sl_order_id"]):
+                    if oid:
+                        await _cancel_safe(exchange, oid, symbol)
+
+                if state["trade_id"]:
+                    exit_price = sym.get("last_price", state["entry_price"])
+                    pnl = (exit_price - state["entry_price"]) * state["amount"] * cfg.LEVERAGE
+                    fee = state["entry_price"] * state["amount"] * 0.0005 * 2
+                    journal.close_trade(state["trade_id"], exit_price, fee, pnl)
+                    await report.send_close_alert(
+                        state["entry_price"], exit_price, pnl, fee, symbol=symbol
+                    )
+
+                state.update({
+                    "has_position": False, "trade_id": None,
+                    "entry_price": 0.0, "amount": 0.0,
+                    "tp_order_id": None, "sl_order_id": None,
+                    "entry_order_id": None, "last_prev_close": 0.0,
+                })
+        except Exception as e:
+            logger.error("[%s] 포지션 조회 오류: %s", symbol, e)
+        return
+
+    # ── B: 진입 주문 대기 중 ──────────────────────────────
+    if state["entry_order_id"]:
+        try:
+            order = await exchange.fetch_order(state["entry_order_id"], symbol)
+            status = order.get("status", "")
+
+            if status == "closed":
+                filled_price = float(order.get("average") or order.get("price") or 0)
+                filled_amount = float(order.get("filled") or order.get("amount") or 0)
+
+                if filled_price <= 0 or filled_amount <= 0:
+                    logger.error("[%s] 체결 정보 이상 — 건너뜀", symbol)
+                    state["entry_order_id"] = None
+                    return
+
+                trade_id = journal.record_trade(
+                    "long", symbol, filled_price, filled_amount, order["id"]
+                )
+                state.update({
+                    "has_position": True, "trade_id": trade_id,
+                    "entry_price": filled_price, "amount": filled_amount,
+                    "entry_order_id": None,
+                })
+                logger.info("[%s] 진입 체결 — %.6f @ %.4f", symbol, filled_amount, filled_price)
+                await _place_tp_sl(exchange, symbol, filled_price, filled_amount)
+
+            elif status == "open":
+                # prev_close가 0.1% 이상 변하면 주문 갱신
+                lpc = state["last_prev_close"]
+                if lpc > 0 and abs(prev_close - lpc) / lpc > 0.001:
+                    logger.debug("[%s] prev_close 변경 (%.4f→%.4f), 주문 갱신", symbol, lpc, prev_close)
+                    await _cancel_safe(exchange, state["entry_order_id"], symbol)
+                    state["entry_order_id"] = None
+                    state["last_prev_close"] = 0.0
+                    await _place_entry(exchange, symbol, prev_close)
+
+            else:
+                # canceled / expired
+                state["entry_order_id"] = None
+                state["last_prev_close"] = 0.0
+
+        except Exception as e:
+            logger.error("[%s] 주문 조회 오류: %s", symbol, e)
+        return
+
+    # ── A: 신규 진입 주문 ─────────────────────────────────
+    await _place_entry(exchange, symbol, prev_close)
 
 
 async def strategy_loop(exchange, shared_state: dict) -> None:
-    """전략 메인 루프 — 캔들 업데이트마다 지표 계산 + 조건 체크."""
-    has_position = False
-    current_trade_id: int | None = None
+    """전략 메인 루프 — 10초마다 모든 심볼 순회."""
+    logger.info("전략 루프 시작 — %s", cfg.SYMBOLS)
+    await asyncio.sleep(5)  # 초기 캔들 로드 대기
 
     while True:
         try:
-            # 일일 손실 한도 체크
-            if shared_state.get("trading_halted"):
-                await asyncio.sleep(30)
-                continue
-
-            # 캔들 데이터 충분한지 확인
-            if len(shared_state["candles"]) < _CANDLE_MIN:
-                await asyncio.sleep(1)
-                continue
-
-            indicators = compute_indicators(shared_state)
-            if indicators is None:
-                await asyncio.sleep(1)
-                continue
-
-            price = shared_state["last_price"]
-
-            # 포지션 확인
-            if not has_position:
-                positions = await exchange.fetch_positions([cfg.SYMBOL])
-                open_positions = [
-                    p for p in positions
-                    if float(p.get("contracts", 0)) > 0
-                ]
-                if len(open_positions) >= cfg.MAX_POSITIONS:
-                    has_position = True
-                    await asyncio.sleep(cfg.RECONNECT_DELAY)
-                    continue
-
-                # 진입 조건 체크
-                if check_entry_conditions(price, indicators):
-                    logger.info(
-                        "진입 조건 충족 — 가격: %.2f, RSI: %.1f, ADX: %.1f, BB하단: %.2f",
-                        price,
-                        indicators["rsi"],
-                        indicators["adx"],
-                        indicators["bb_lower"],
-                    )
-                    order = await place_entry_order(exchange, price, indicators)
-                    if order:
-                        amount = float(order.get("amount", 0))
-                        atr = indicators["atr"]
-                        bb_middle = indicators["bb_middle"]
-                        tp_order, sl_order = await place_tp_sl_orders(
-                            exchange, price, amount, atr, bb_middle
-                        )
-
-                        # 매매 일지 기록
-                        tp_id = tp_order["id"] if tp_order else None
-                        sl_id = sl_order["id"] if sl_order else None
-                        current_trade_id = journal.record_trade(
-                            side="buy",
-                            symbol=cfg.SYMBOL,
-                            entry_price=price,
-                            amount=amount,
-                            order_id=order["id"],
-                            tp_order_id=tp_id,
-                            sl_order_id=sl_id,
-                        )
-
-                        # Telegram 알림
-                        tp_price = bb_middle
-                        sl_price = price - atr * cfg.SL_ATR_MULT
-                        await report.send_trade_alert(
-                            "buy", price, amount, tp_price, sl_price
-                        )
-                        has_position = True
+            if not shared_state.get("trading_halted", False):
+                for symbol in cfg.SYMBOLS:
+                    await _handle_symbol(exchange, symbol, shared_state)
             else:
-                # 포지션 종료 확인
-                positions = await exchange.fetch_positions([cfg.SYMBOL])
-                open_positions = [
-                    p for p in positions
-                    if float(p.get("contracts", 0)) > 0
-                ]
-                if not open_positions:
-                    has_position = False
-
-                    # 매매 종료 기록
-                    if current_trade_id is not None:
-                        trade = journal.get_open_trade()
-                        if trade:
-                            entry_price = trade["entry_price"]
-                            amount = trade["amount"]
-                            fee = price * amount * 0.0002  # maker 0.02%
-                            pnl = (price - entry_price) * amount - fee
-                            journal.close_trade(current_trade_id, price, fee, pnl)
-                            await report.send_close_alert(entry_price, price, pnl, fee)
-                        current_trade_id = None
-
-                    logger.info("포지션 종료 감지 — 새 진입 대기")
-
-            await asyncio.sleep(1)
-
+                logger.debug("거래 중단 상태 — 전략 루프 대기")
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error("전략 루프 오류: %s", e)
-            await asyncio.sleep(cfg.RECONNECT_DELAY)
+
+        await asyncio.sleep(10)

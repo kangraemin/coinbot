@@ -31,16 +31,16 @@ def create_exchange() -> ccxtpro.binance:
 
 
 async def setup_leverage(exchange: ccxtpro.binance) -> None:
-    """격리마진 + 레버리지를 설정한다."""
-    try:
-        await exchange.set_margin_mode(cfg.MARGIN_TYPE, cfg.SYMBOL)
-        logger.info("마진 모드 설정: %s", cfg.MARGIN_TYPE)
-    except Exception as e:
-        # 이미 설정된 경우 에러 무시
-        logger.warning("마진 모드 설정 중 예외 (이미 설정됨?): %s", e)
+    """모든 심볼에 격리마진 + 레버리지를 설정한다."""
+    for symbol in cfg.SYMBOLS:
+        try:
+            await exchange.set_margin_mode(cfg.MARGIN_TYPE, symbol)
+            logger.info("[%s] 마진 모드 설정: %s", symbol, cfg.MARGIN_TYPE)
+        except Exception as e:
+            logger.warning("[%s] 마진 모드 설정 중 예외 (이미 설정됨?): %s", symbol, e)
 
-    try:
-        await exchange.set_leverage(cfg.LEVERAGE, cfg.SYMBOL)
-        logger.info("레버리지 설정: %dx", cfg.LEVERAGE)
-    except Exception as e:
-        logger.warning("레버리지 설정 중 예외: %s", e)
+        try:
+            await exchange.set_leverage(cfg.LEVERAGE, symbol)
+            logger.info("[%s] 레버리지 설정: %dx", symbol, cfg.LEVERAGE)
+        except Exception as e:
+            logger.warning("[%s] 레버리지 설정 중 예외: %s", symbol, e)

@@ -109,13 +109,19 @@ def get_daily_pnl() -> float:
     return sum(t.get("pnl", 0) for t in trades)
 
 
-def get_open_trade() -> dict | None:
-    """현재 열린 매매 기록을 반환한다."""
+def get_open_trade(symbol: str | None = None) -> dict | None:
+    """현재 열린 매매 기록을 반환한다. symbol 지정 시 해당 심볼만 조회."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT * FROM trades WHERE status = 'open' ORDER BY id DESC LIMIT 1"
-    ).fetchone()
+    if symbol:
+        row = conn.execute(
+            "SELECT * FROM trades WHERE status = 'open' AND symbol = ? ORDER BY id DESC LIMIT 1",
+            (symbol,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM trades WHERE status = 'open' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
     conn.close()
     return dict(row) if row else None
 

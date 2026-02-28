@@ -11,27 +11,31 @@ logger = logging.getLogger(__name__)
 
 
 async def cancel_stale_orders(exchange) -> None:
-    """ORDER_TIMEOUT_MIN을 초과한 미체결 주문을 취소한다."""
-    try:
-        open_orders = await exchange.fetch_open_orders(cfg.SYMBOL)
-        now_ms = int(time.time() * 1000)
-        timeout_ms = cfg.ORDER_TIMEOUT_MIN * 60 * 1000
+    """ORDER_TIMEOUT_MIN을 초과한 미체결 진입 주문을 취소한다.
+    reduceOnly 주문(TP/SL)은 취소하지 않는다."""
+    now_ms = int(time.time() * 1000)
+    timeout_ms = cfg.ORDER_TIMEOUT_MIN * 60 * 1000
 
-        for order in open_orders:
-            order_time = order.get("timestamp", 0)
-            if now_ms - order_time > timeout_ms:
-                await exchange.cancel_order(order["id"], cfg.SYMBOL)
-                elapsed = (now_ms - order_time) / 60000
-                logger.info(
-                    "미체결 주문 취소 (타임아웃) — 주문ID: %s, 경과: %.1f분",
-                    order["id"],
-                    elapsed,
-                )
-                await report.send_telegram(
-                    f"⏰ *미체결 주문 자동 취소*\n주문ID: {order['id']}\n경과: {elapsed:.1f}분"
-                )
-    except Exception as e:
-        logger.error("미체결 주문 취소 중 오류: %s", e)
+    for symbol in cfg.SYMBOLS:
+        try:
+            open_orders = await exchange.fetch_open_orders(symbol)
+            for order in open_orders:
+                # TP/SL(reduceOnly) 주문은 건너뜀
+                if order.get("reduceOnly", False):
+                    continue
+                order_time = order.get("timestamp", 0)
+                if now_ms - order_time > timeout_ms:
+                    await exchange.cancel_order(order["id"], symbol)
+                    elapsed = (now_ms - order_time) / 60000
+                    logger.info(
+                        "[%s] 미체결 주문 취소 (타임아웃) — 주문ID: %s, 경과: %.1f분",
+                        symbol, order["id"], elapsed,
+                    )
+                    await report.send_telegram(
+                        f"⏰ *미체결 주문 자동 취소*\n심볼: {symbol}\n주문ID: {order['id']}\n경과: {elapsed:.1f}분"
+                    )
+        except Exception as e:
+            logger.error("[%s] 미체결 주문 취소 중 오류: %s", symbol, e)
 
 
 async def check_daily_loss(exchange, shared_state: dict) -> bool:
