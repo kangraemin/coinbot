@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 import config as cfg
-import report
+from . import report
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ async def check_daily_loss(exchange, shared_state: dict) -> bool:
         True이면 거래 중단 상태.
     """
     try:
-        from journal import get_daily_pnl
+        from .journal import get_daily_pnl
 
         daily_pnl = get_daily_pnl()
         balance = await exchange.fetch_balance()

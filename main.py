@@ -7,10 +7,10 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 
 import config as cfg
-import report
-from exchange import create_exchange, setup_leverage
-from risk import risk_loop
-from strategy import strategy_loop
+from bot import report
+from bot.exchange import create_exchange, setup_leverage
+from bot.risk import risk_loop
+from bot.strategy import strategy_loop
 
 logging.basicConfig(format=cfg.LOG_FORMAT, level=cfg.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ async def daily_report_loop(exchange) -> None:
                 next_7am += timedelta(days=1)
             await asyncio.sleep((next_7am - now).total_seconds())
 
-            from journal import get_daily_trades
+            from bot.journal import get_daily_trades
             trades = get_daily_trades()
             balance_data = await exchange.fetch_balance()
             balance = float(balance_data.get("USDT", {}).get("free", 0))

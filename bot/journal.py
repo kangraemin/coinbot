@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "trades.db"
+DB_PATH = "data/trades.db"
 
 
 def init_db() -> None:

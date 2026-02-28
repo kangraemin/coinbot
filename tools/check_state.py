@@ -1,7 +1,12 @@
 """잔액 + 포지션 + 주문 상태 점검."""
 
 import asyncio
-from exchange import create_exchange
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from bot.exchange import create_exchange
 import config as cfg
 
 

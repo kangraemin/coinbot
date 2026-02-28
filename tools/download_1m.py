@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SYMBOL = "BTC/USDT:USDT"
 TIMEFRAME = "1m"
-DATA_DIR = "data"
+DATA_DIR = "data/market"
 LIMIT = 1000  # ccxt fetch_ohlcv 최대 한 번에 가져올 캔들 수
 
 

@@ -2,8 +2,12 @@
 
 import asyncio
 import logging
+import os
+import sys
 
-from exchange import create_exchange
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from bot.exchange import create_exchange
 import config as cfg
 
 logging.basicConfig(format=cfg.LOG_FORMAT, level=logging.INFO)

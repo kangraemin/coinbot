@@ -11,8 +11,8 @@ import asyncio
 import logging
 
 import config as cfg
-import journal
-import report
+from . import journal
+from . import report
 
 logger = logging.getLogger(__name__)
 
