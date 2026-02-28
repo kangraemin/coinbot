@@ -6,6 +6,7 @@ import signal
 from collections import deque
 
 import config as cfg
+import report
 from exchange import create_exchange, setup_leverage
 from risk import risk_loop
 from strategy import strategy_loop
@@ -67,6 +68,9 @@ async def main() -> None:
         await load_initial_candles(exchange)
 
         logger.info("coinbot 시작 — %s %s", cfg.SYMBOL, cfg.TIMEFRAME)
+        await report.send_telegram(
+            f"🤖 *coinbot 시작*\n심볼: {cfg.SYMBOL}\n타임프레임: {cfg.TIMEFRAME}\n레버리지: {cfg.LEVERAGE}x\n거래금액: {cfg.TRADE_AMOUNT_USDT} USDT"
+        )
 
         await asyncio.gather(
             data_loop(exchange),
@@ -75,6 +79,7 @@ async def main() -> None:
         )
     except asyncio.CancelledError:
         logger.info("봇 종료 요청 수신")
+        await report.send_telegram("🛑 *coinbot 종료*")
     finally:
         await exchange.close()
         logger.info("거래소 연결 종료")

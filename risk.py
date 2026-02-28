@@ -5,6 +5,7 @@ import logging
 import time
 
 import config as cfg
+import report
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,14 @@ async def cancel_stale_orders(exchange) -> None:
             order_time = order.get("timestamp", 0)
             if now_ms - order_time > timeout_ms:
                 await exchange.cancel_order(order["id"], cfg.SYMBOL)
+                elapsed = (now_ms - order_time) / 60000
                 logger.info(
                     "미체결 주문 취소 (타임아웃) — 주문ID: %s, 경과: %.1f분",
                     order["id"],
-                    (now_ms - order_time) / 60000,
+                    elapsed,
+                )
+                await report.send_telegram(
+                    f"⏰ *미체결 주문 자동 취소*\n주문ID: {order['id']}\n경과: {elapsed:.1f}분"
                 )
     except Exception as e:
         logger.error("미체결 주문 취소 중 오류: %s", e)
@@ -54,6 +59,9 @@ async def check_daily_loss(exchange, shared_state: dict) -> bool:
                 "일일 손실 한도 도달 — PnL: %.2f USDT (%.1f%%), 거래 중단",
                 daily_pnl,
                 daily_loss_pct,
+            )
+            await report.send_telegram(
+                f"🚨 *일일 손실 한도 도달 — 거래 중단*\n손실: {daily_pnl:.2f} USDT ({daily_loss_pct:.1f}%)\n한도: {cfg.MAX_DAILY_LOSS_PCT}%"
             )
             return True
 
