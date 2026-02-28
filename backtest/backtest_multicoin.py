@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "market")
 TAKER_FEE_RATE = 0.0005
 COINS = ["btc", "eth", "sol", "xrp"]
 ALLOC = 1.0 / len(COINS)  # 25% each

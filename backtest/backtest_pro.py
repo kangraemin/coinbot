@@ -66,7 +66,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 # ─────────────────────────────────────────────────────────────
 # 상수
 # ─────────────────────────────────────────────────────────────
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "market")
 
 # 비용 모델
 SLIPPAGE = 0.0003        # 진입 시 3bp 불리
@@ -655,7 +655,7 @@ def print_report(result: dict, use_hurst: bool) -> None:
     print("=" * 72)
 
     # CSV 저장
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+    out_dir = os.path.join(os.path.dirname(__file__), "..", "data", "results")
     os.makedirs(out_dir, exist_ok=True)
     suffix = "" if use_hurst else "_no_hurst"
 
