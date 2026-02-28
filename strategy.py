@@ -7,6 +7,8 @@ import pandas as pd
 import pandas_ta as ta
 
 import config as cfg
+import journal
+import report
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +174,15 @@ async def place_tp_sl_orders(
 async def strategy_loop(exchange, shared_state: dict) -> None:
     """전략 메인 루프 — 캔들 업데이트마다 지표 계산 + 조건 체크."""
     has_position = False
+    current_trade_id: int | None = None
 
     while True:
         try:
+            # 일일 손실 한도 체크
+            if shared_state.get("trading_halted"):
+                await asyncio.sleep(30)
+                continue
+
             # 캔들 데이터 충분한지 확인
             if len(shared_state["candles"]) < cfg.EMA_LONG:
                 await asyncio.sleep(1)
@@ -211,7 +219,29 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                     if order:
                         amount = float(order.get("amount", 0))
                         atr = indicators["atr"]
-                        await place_tp_sl_orders(exchange, price, amount, atr)
+                        tp_order, sl_order = await place_tp_sl_orders(
+                            exchange, price, amount, atr
+                        )
+
+                        # 매매 일지 기록
+                        tp_id = tp_order["id"] if tp_order else None
+                        sl_id = sl_order["id"] if sl_order else None
+                        current_trade_id = journal.record_trade(
+                            side="buy",
+                            symbol=cfg.SYMBOL,
+                            entry_price=price,
+                            amount=amount,
+                            order_id=order["id"],
+                            tp_order_id=tp_id,
+                            sl_order_id=sl_id,
+                        )
+
+                        # Telegram 알림
+                        tp_price = price + atr * cfg.TP_ATR_MULT
+                        sl_price = price - atr * cfg.SL_ATR_MULT
+                        await report.send_trade_alert(
+                            "buy", price, amount, tp_price, sl_price
+                        )
                         has_position = True
             else:
                 # 포지션 종료 확인
@@ -222,6 +252,19 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                 ]
                 if not open_positions:
                     has_position = False
+
+                    # 매매 종료 기록
+                    if current_trade_id is not None:
+                        trade = journal.get_open_trade()
+                        if trade:
+                            entry_price = trade["entry_price"]
+                            amount = trade["amount"]
+                            fee = price * amount * 0.0002  # maker 0.02%
+                            pnl = (price - entry_price) * amount - fee
+                            journal.close_trade(current_trade_id, price, fee, pnl)
+                            await report.send_close_alert(entry_price, price, pnl, fee)
+                        current_trade_id = None
+
                     logger.info("포지션 종료 감지 — 새 진입 대기")
 
             await asyncio.sleep(1)

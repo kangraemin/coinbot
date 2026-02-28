@@ -7,6 +7,7 @@ from collections import deque
 
 import config as cfg
 from exchange import create_exchange, setup_leverage
+from risk import risk_loop
 from strategy import strategy_loop
 
 logging.basicConfig(format=cfg.LOG_FORMAT, level=cfg.LOG_LEVEL)
@@ -17,6 +18,7 @@ shared_state: dict = {
     "candles": deque(maxlen=cfg.CANDLE_BUFFER_SIZE),
     "last_price": 0.0,
     "indicators": {},
+    "trading_halted": False,
 }
 
 
@@ -56,12 +58,6 @@ async def data_loop(exchange) -> None:
             await asyncio.sleep(cfg.RECONNECT_DELAY)
 
 
-async def risk_loop() -> None:
-    """리스크 루프 스텁 — Phase 3에서 구현."""
-    while True:
-        await asyncio.sleep(1)
-
-
 async def main() -> None:
     """메인 루프: 거래소 초기화 → 캔들 로드 → 루프 실행."""
     exchange = create_exchange()
@@ -75,7 +71,7 @@ async def main() -> None:
         await asyncio.gather(
             data_loop(exchange),
             strategy_loop(exchange, shared_state),
-            risk_loop(),
+            risk_loop(exchange, shared_state),
         )
     except asyncio.CancelledError:
         logger.info("봇 종료 요청 수신")
