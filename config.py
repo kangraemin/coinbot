@@ -29,25 +29,28 @@ SYMBOLS: list[str] = [
 TIMEFRAME: str = "1m"
 
 # ── 레버리지 & 마진 ─────────────────────────────────
-LEVERAGE: int = 7
+LEVERAGE: int = 5
 MARGIN_TYPE: str = "isolated"
 
-# ── 전략 파라미터 (코인별 최적화, 7x/20% 5년 백테스트 기준) ──────────────
+# ── 전략 파라미터 (코인별 최적화, 자본 손실 기준 SL 5년 백테스트 기준) ──────────────
 # 공통 기본값
 ENTRY_DROP_PCT: float = 1.5   # prev_close 대비 이 % 이상 하락 시 진입
 TP_PCT: float = 3.0           # 익절 기본값
-SL_PCT: float = 0.5           # 손절 기본값
+SL_PCT: float = 0.2           # 손절 기본값 (자본 1% / 5x = 가격 0.2%)
 POSITION_RATIO: float = 0.20  # 코인당 자본 비율 (20%)
 MAX_POSITIONS: int = 4        # 코인당 1개
 
 # 심볼별 파라미터 오버라이드 (없으면 위 기본값 사용)
-# BTC: sl 1.5% — 노이즈 손절 방지, 승률 26.9%→45.2%, 수익 +93%→+112%
-# ETH: tp 2.0% — 빠른 익절, MDD 17.9%→12.5%, 수익 +140%→+153%
+# 자본 손실 1% 기준 SL (sl_pct = sl_capital / leverage = 1% / 5x = 0.2% 가격)
+# BTC: entry 1.5% / TP 2.0% / SL 0.2% → 수익 +88%, MDD 4.0%
+# ETH: entry 1.0% / TP 1.0% / SL 0.2% → 수익 +451%, MDD 12.0%
+# SOL: entry 2.0% / TP 5.0% / SL 0.2% → 수익 +3701%, MDD 10.7%
+# XRP: entry 1.5% / TP 3.0% / SL 0.2% → 수익 +2596%, MDD 9.9%
 SYMBOL_PARAMS: dict[str, dict] = {
-    "BTC/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 1.5},
-    "ETH/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 2.0, "sl_pct": 0.5},
-    "SOL/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 0.5},
-    "XRP/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 0.5},
+    "BTC/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 2.0, "sl_pct": 0.2},
+    "ETH/USDT:USDT": {"entry_pct": 1.0, "tp_pct": 1.0, "sl_pct": 0.2},
+    "SOL/USDT:USDT": {"entry_pct": 2.0, "tp_pct": 5.0, "sl_pct": 0.2},
+    "XRP/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 0.2},
 }
 
 # ── 리스크 ───────────────────────────────────────────

@@ -298,4 +298,4 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
         except Exception as e:
             logger.error("전략 루프 오류: %s", e)
 
-        await asyncio.sleep(10)
+        await asyncio.sleep(2)

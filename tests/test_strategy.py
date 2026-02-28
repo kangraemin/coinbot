@@ -58,17 +58,17 @@ async def test_place_tp_sl(exchange):
     assert tp_args[1] == "limit"
     assert tp_args[2] == "sell"
     assert tp_args[3] == 0.1
-    assert tp_args[4] == 51500.0
+    assert tp_args[4] == 51000.0  # BTC tp_pct=2.0% → 50000 * 1.02 = 51000.0
     assert tp_args[5] == {"reduceOnly": True, "timeInForce": "GTC"}
 
     # SL: STOP_MARKET sell with stopPrice
-    # BTC sl_pct=1.5% (SYMBOL_PARAMS 기준) → 50000 * 0.985 = 49250.0
+    # BTC sl_pct=0.2% (SYMBOL_PARAMS 기준) → 50000 * 0.998 = 49900.0
     assert sl_args[0] == SYMBOL
     assert sl_args[1] == "STOP_MARKET"
     assert sl_args[2] == "sell"
     assert sl_args[3] == 0.1
     assert sl_args[4] is None
-    assert sl_args[5]["stopPrice"] == 49250.0
+    assert sl_args[5]["stopPrice"] == 49900.0
     assert sl_args[5]["reduceOnly"] is True
 
     mock_alert.assert_called_once()
