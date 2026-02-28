@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "market")
 TAKER_FEE_RATE = 0.0005
 
 ENTRY_PCTS = [0.3, 0.5, 0.8, 1.0, 1.5]
@@ -140,7 +140,7 @@ def main():
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
     if args.output is None:
-        results_dir = os.path.join(os.path.dirname(__file__), "..", "results")
+        results_dir = os.path.join(os.path.dirname(__file__), "..", "data", "results")
         os.makedirs(results_dir, exist_ok=True)
         args.output = os.path.join(results_dir, f"grid_results_{args.coin}.csv")
 

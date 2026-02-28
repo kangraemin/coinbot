@@ -15,8 +15,8 @@ from itertools import product
 
 import pandas as pd
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "market")
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "results")
 TAKER_FEE_RATE = 0.0005
 
 ALL_TIMEFRAMES = ["1m", "3m", "5m", "15m"]

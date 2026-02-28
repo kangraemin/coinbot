@@ -25,8 +25,8 @@ import pandas as pd
 import ta as ta_lib
 from scipy import stats as scipy_stats
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "market")
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "results")
 
 # ── 비용 / 포지션 ────────────────────────────────────────────
 LEVERAGE = 3
