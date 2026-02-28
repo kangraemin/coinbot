@@ -1,4 +1,4 @@
-ccxt>=4.0.0
+ccxt[pro]>=4.0.0
 pandas>=2.1.0
 pandas_ta>=0.3.14b
 python-dotenv>=1.0.0
