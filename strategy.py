@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 import pandas as pd
-import pandas_ta as ta
+import ta as ta_lib
 
 import config as cfg
 import journal
@@ -36,21 +36,21 @@ def compute_indicators(shared_state: dict) -> dict | None:
     volume = df["volume"]
 
     # Bollinger Bands
-    bb = ta.bbands(close, length=cfg.BB_PERIOD, std=cfg.BB_STD)
-    bb_lower = bb.iloc[:, 0]  # BBL
+    bb_indicator = ta_lib.volatility.BollingerBands(close, window=cfg.BB_PERIOD, window_dev=cfg.BB_STD)
+    bb_lower = bb_indicator.bollinger_lband()
 
     # RSI
-    rsi = ta.rsi(close, length=cfg.RSI_PERIOD)
+    rsi = ta_lib.momentum.RSIIndicator(close, window=cfg.RSI_PERIOD).rsi()
 
     # EMA
-    ema_long = ta.ema(close, length=cfg.EMA_LONG)
-    ema_short = ta.ema(close, length=cfg.EMA_SHORT)
+    ema_long = ta_lib.trend.EMAIndicator(close, window=cfg.EMA_LONG).ema_indicator()
+    ema_short = ta_lib.trend.EMAIndicator(close, window=cfg.EMA_SHORT).ema_indicator()
 
     # ATR
-    atr = ta.atr(high, low, close, length=cfg.ATR_PERIOD)
+    atr = ta_lib.volatility.AverageTrueRange(high, low, close, window=cfg.ATR_PERIOD).average_true_range()
 
     # Volume MA
-    volume_ma = ta.sma(volume, length=cfg.VOLUME_MA_PERIOD)
+    volume_ma = volume.rolling(window=cfg.VOLUME_MA_PERIOD).mean()
 
     indicators = {
         "bb_lower": bb_lower.iloc[-1],
