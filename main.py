@@ -134,6 +134,23 @@ def _handle_shutdown(loop: asyncio.AbstractEventLoop) -> None:
 
 
 if __name__ == "__main__":
+    import os, sys
+
+    PID_FILE = "/tmp/coinbot.pid"
+
+    # 중복 실행 방지
+    if os.path.exists(PID_FILE):
+        try:
+            old_pid = int(open(PID_FILE).read().strip())
+            os.kill(old_pid, 0)  # 프로세스 존재 확인
+            logger.error("이미 실행 중 (PID %d). 종료합니다.", old_pid)
+            sys.exit(1)
+        except (ProcessLookupError, ValueError):
+            pass  # 기존 PID가 죽었으면 계속 진행
+
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
     loop = asyncio.new_event_loop()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -143,4 +160,8 @@ if __name__ == "__main__":
         loop.run_until_complete(main())
     finally:
         loop.close()
+        try:
+            os.remove(PID_FILE)
+        except FileNotFoundError:
+            pass
         logger.info("coinbot 종료")
