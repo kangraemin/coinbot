@@ -22,10 +22,10 @@ LEVERAGES = [3, 5, 7, 10]
 POS_RATIOS = [10, 20, 30]
 
 
-def load_data() -> pd.DataFrame:
+def load_data(coin: str = "btc") -> pd.DataFrame:
     frames = []
     for year in [2022, 2023, 2024, 2025, 2026]:
-        path = os.path.join(DATA_DIR, f"btc_1m_{year}.parquet")
+        path = os.path.join(DATA_DIR, f"{coin}_1m_{year}.parquet")
         if os.path.exists(path):
             frames.append(pd.read_parquet(path))
     df = pd.concat(frames, ignore_index=True)
@@ -137,10 +137,11 @@ def calc_stats(trades, equity_curve, entry_pct, tp_pct, sl_pct, leverage, pos_ra
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="grid_results.csv")
+    parser.add_argument("--coin", default="btc", help="코인 심볼 소문자 (기본: btc)")
     args = parser.parse_args()
 
-    print("데이터 로드 중...")
-    df = load_data()
+    print(f"[{args.coin.upper()}] 데이터 로드 중...")
+    df = load_data(args.coin)
     print(f"로드 완료: {len(df):,}행 ({df['timestamp'].iloc[0].date()} ~ {df['timestamp'].iloc[-1].date()})")
 
     combos = list(product(ENTRY_PCTS, TP_PCTS, SL_PCTS, LEVERAGES, POS_RATIOS))
