@@ -96,20 +96,20 @@ STRATEGIES = [
     {
         "coin":     "XRP",
         "symbol":   "XRP/USDT",
-        "tf":       "1d",
-        "name":     "MACD26/52",
-        "desc":     "일봉 MACD(26,52,18) 히스토그램 > 0 → 매수 / ≤ 0 → 매도",
+        "tf":       "4h",
+        "name":     "EMA20/100",
+        "desc":     "4시간봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
         "leverage": "2x",
-        "backtest": "10/13기간 B&H 초과 (77%) | avg +85.8%",
+        "backtest": "8/13기간 B&H 초과 (62%) | avg +74.8% | BTC/ETH 동일 계열",
     },
     {
         "coin":     "XRP",
         "symbol":   "XRP/USDT",
         "tf":       "4h",
-        "name":     "MACD26/52",
-        "desc":     "4시간봉 MACD(26,52,18) 히스토그램 > 0 → 매수 / ≤ 0 → 매도",
+        "name":     "EMA50/200",
+        "desc":     "4시간봉 EMA50이 EMA200 위로 → 매수 / 아래로 → 매도",
         "leverage": "2x",
-        "backtest": "9/13기간 B&H 초과 (69%) | avg +66.3% (1x L+S 기준)",
+        "backtest": "8/13기간 B&H 초과 (62%) | avg +45.0% | BTC/ETH 동일 계열",
     },
     # ── SOL ───────────────────────────────────────────────
     {
