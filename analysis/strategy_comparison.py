@@ -2,15 +2,18 @@
 EMA 트렌드 vs RSI+BB 역추세 전략 통계 비교.
 
 전략 A (EMA 트렌드, 신호 반전까지 홀딩):
-  BTC 4h: EMA50/200 크로스 → 롱 (롱 온리, 2x)
-  ETH 4h: Price > EMA200   → 롱 (롱 온리, 2x)
-  XRP 4h: EMA20/100 크로스 → 롱 (롱 온리, 2x)
+  BTC 4h: EMA50/200 크로스 → 롱 (롱 온리, 3x)
+  ETH 4h: Price > EMA200   → 롱 (롱 온리, 3x)
+  XRP 4h: EMA20/100 크로스 → 롱 (롱 온리, 3x)
 
-전략 B (RSI+BB 역추세, 고정 TP/SL):
+전략 B (RSI+BB 역추세, 고정 TP/SL) — 확정 파라미터:
   BTC 4h: RSI<30 + 종가<BB하단 + 종가>EMA200 → 롱  TP=ATR×3, SL=ATR×2
            RSI>65 + 종가>BB상단 + 종가<EMA200 → 숏  TP=ATR×3, SL=ATR×2
   ETH 4h: RSI<25 + 종가<BB하단 + 종가>EMA200 → 롱  TP=ATR×2, SL=ATR×2
+           RSI>65 + 종가>BB상단 + 종가<EMA200 → 숏  TP=ATR×2, SL=ATR×2
   XRP 4h: RSI<25 + 종가<BB하단 + 종가>EMA200 → 롱  TP=ATR×3, SL=ATR×2
+           RSI>65 + 종가>BB상단 + 종가<EMA200 → 숏  TP=ATR×3, SL=ATR×2
+  공통: BB 20봉/2σ, 레버리지 3x, 포지션 70%
 
 2017~2026 전체 히스토리 14기간 비교.
 실행: python3 analysis/strategy_comparison.py
@@ -29,8 +32,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 FEE_RATE = 0.0005   # 0.05%/side
 SLIPPAGE = 0.0003   # 3bp/side
-LEV      = 2
-LIQ_MOVE = 0.475    # 2x 격리마진: 진입가 대비 -47.5% 청산
+LEV      = 3
+LIQ_MOVE = 0.317    # 3x 격리마진: 진입가 대비 -31.7% 청산
 
 PERIODS = {
     'bull_2017h2':  ('2017-08-01', '2018-01-01'),
@@ -186,13 +189,15 @@ def backtest_rsi_bb(df: pd.DataFrame, inds: dict, coin: str) -> dict:
         tp_s, sl_s = 3.0, 2.0
         allow_short = True
     elif coin == 'eth':
-        rsi_long_th = 25
-        tp_l, sl_l  = 2.0, 2.0
-        allow_short = False
+        rsi_long_th, rsi_short_th = 25, 65
+        tp_l, sl_l = 2.0, 2.0
+        tp_s, sl_s = 2.0, 2.0
+        allow_short = True
     else:  # xrp
-        rsi_long_th = 25
-        tp_l, sl_l  = 3.0, 2.0
-        allow_short = False
+        rsi_long_th, rsi_short_th = 25, 65
+        tp_l, sl_l = 3.0, 2.0
+        tp_s, sl_s = 3.0, 2.0
+        allow_short = True
 
     trades, pos, ep = [], None, 0.0
     tp_p, sl_p = 0.0, 0.0
@@ -329,7 +334,7 @@ W = 100
 for coin in COINS:
     sub = df_res[df_res['coin'] == coin.upper()]
     print(f'\n{"="*W}')
-    print(f' {coin.upper()} | A: EMA 트렌드 ({EMA_LABEL[coin]})  vs  B: RSI+BB 역추세 | 2x 레버리지')
+    print(f' {coin.upper()} | A: EMA 트렌드 ({EMA_LABEL[coin]})  vs  B: RSI+BB 역추세 | {LEV}x 레버리지')
     print(f'{"="*W}')
     print(f'{"기간":<13} {"B&H":>7}  '
           f'{"A수익":>8}{"":1} {"A거래":>5} {"A승률":>5} {"AMDD":>6}  '
