@@ -52,18 +52,9 @@ if _claude_env.exists():
 STATE_FILE = Path(__file__).parent / "output" / "signal_state.json"
 
 # ── 감시할 전략 ────────────────────────────────────────────
-# 2017~2026 전체 히스토리 백테스트 기반 최적 파라미터
+# 청산 시뮬레이션 포함 백테스트 기반 최종 3전략
+# (2017~2026 전체 히스토리, 격리마진 2x 청산 -47.5%)
 STRATEGIES = [
-    # ── BTC ───────────────────────────────────────────────
-    {
-        "coin":     "BTC",
-        "symbol":   "BTC/USDT",
-        "tf":       "1d",
-        "name":     "EMA20/100",
-        "desc":     "일봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
-        "leverage": "3x",
-        "backtest": "12/14기간 B&H 초과 (86%) | avg +114.9% | MDD 7.6%",
-    },
     {
         "coin":     "BTC",
         "symbol":   "BTC/USDT",
@@ -71,9 +62,8 @@ STRATEGIES = [
         "name":     "EMA50/200",
         "desc":     "4시간봉 EMA50이 EMA200 위로 → 매수 / 아래로 → 매도",
         "leverage": "2x",
-        "backtest": "12/14기간 B&H 초과 (86%) | avg +175.8%",
+        "backtest": "청산 0회 | 10/14기간 B&H 초과 | avg α +54.0%p",
     },
-    # ── ETH ───────────────────────────────────────────────
     {
         "coin":     "ETH",
         "symbol":   "ETH/USDT",
@@ -81,18 +71,8 @@ STRATEGIES = [
         "name":     "Price>EMA200",
         "desc":     "4시간봉 종가가 EMA200 위 → 매수 / 아래 → 매도",
         "leverage": "2x",
-        "backtest": "13/14기간 B&H 초과 (93%) | avg +141.2%  ← ETH 최고 전략",
+        "backtest": "청산 1회(2017) | 12/14기간 B&H 초과 | avg α +11.0%p",
     },
-    {
-        "coin":     "ETH",
-        "symbol":   "ETH/USDT",
-        "tf":       "4h",
-        "name":     "EMA20/100",
-        "desc":     "4시간봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
-        "leverage": "2x",
-        "backtest": "13/14기간 B&H 초과 (93%) | avg +130.1%",
-    },
-    # ── XRP ───────────────────────────────────────────────
     {
         "coin":     "XRP",
         "symbol":   "XRP/USDT",
@@ -100,35 +80,7 @@ STRATEGIES = [
         "name":     "EMA20/100",
         "desc":     "4시간봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
         "leverage": "2x",
-        "backtest": "8/13기간 B&H 초과 (62%) | avg +74.8% | BTC/ETH 동일 계열",
-    },
-    {
-        "coin":     "XRP",
-        "symbol":   "XRP/USDT",
-        "tf":       "4h",
-        "name":     "EMA50/200",
-        "desc":     "4시간봉 EMA50이 EMA200 위로 → 매수 / 아래로 → 매도",
-        "leverage": "2x",
-        "backtest": "8/13기간 B&H 초과 (62%) | avg +45.0% | BTC/ETH 동일 계열",
-    },
-    # ── SOL ───────────────────────────────────────────────
-    {
-        "coin":     "SOL",
-        "symbol":   "SOL/USDT",
-        "tf":       "4h",
-        "name":     "Price>EMA200",
-        "desc":     "4시간봉 종가가 EMA200 위 → 매수 / 아래 → 매도",
-        "leverage": "2x",
-        "backtest": "7/11기간 B&H 초과 (64%) | avg +389.4%",
-    },
-    {
-        "coin":     "SOL",
-        "symbol":   "SOL/USDT",
-        "tf":       "1d",
-        "name":     "Supertrend3",
-        "desc":     "일봉 Supertrend(period=10, mult=3.0) 상승추세 → 매수 / 하강 → 매도",
-        "leverage": "2x",
-        "backtest": "7/11기간 B&H 초과 (64%) | avg +532.1%",
+        "backtest": "청산 0회 | 8/13기간 B&H 초과 | avg α +33.8%p",
     },
 ]
 

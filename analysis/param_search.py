@@ -147,17 +147,45 @@ def compute_signals(df: pd.DataFrame) -> dict[str, pd.Series]:
 
 
 # ── 백테스트 ─────────────────────────────────────────────────────────
+# 격리마진 청산 기준: 진입가 대비 (1/레버리지 * 0.95) 하락 시 청산
+# 예) 3x → 33.3% * 0.95 = 31.7% 하락, 2x → 50% * 0.95 = 47.5% 하락
+LIQ_FACTOR = {1: 0.99, 2: 0.475, 3: 0.317}   # 진입가 × (1 - factor) = 청산가 (롱)
+
+
 def backtest(df: pd.DataFrame, sig: pd.Series, lev: int, with_short: bool) -> dict:
     opens  = df['open'].values.astype(float)
+    highs  = df['high'].values.astype(float)
+    lows   = df['low'].values.astype(float)
     closes = df['close'].values.astype(float)
     sv     = sig.values.astype(bool)
     n      = len(df)
 
+    liq_move = LIQ_FACTOR[lev]   # 이 비율 이상 역행하면 청산
+
     trades = []
     pos, ep = None, 0.0
+    liquidated = False
 
     for i in range(1, n):
+        if liquidated:
+            break
         prev = sv[i-1]
+
+        # 청산 체크: 보유 중인 포지션이 현재 캔들에서 청산가 터치했는지
+        if pos == 'L':
+            liq_price = ep * (1 - liq_move)
+            if lows[i] <= liq_price:
+                trades.append(-1.0)   # -100% (계좌 전소)
+                liquidated = True
+                break
+        elif pos == 'S':
+            liq_price = ep * (1 + liq_move)
+            if highs[i] >= liq_price:
+                trades.append(-1.0)
+                liquidated = True
+                break
+
+        # 신호 반전 → 청산 후 전환
         if pos is None:
             if prev:
                 ep, pos = opens[i] * (1 + SLIPPAGE), 'L'
@@ -175,7 +203,7 @@ def backtest(df: pd.DataFrame, sig: pd.Series, lev: int, with_short: bool) -> di
             pos = None
             ep, pos = opens[i] * (1 + SLIPPAGE), 'L'
 
-    if pos is not None:
+    if pos is not None and not liquidated:
         xp = closes[-1]
         pnl = (xp - ep) / ep if pos == 'L' else (ep - xp) / ep
         trades.append(pnl)
@@ -184,13 +212,15 @@ def backtest(df: pd.DataFrame, sig: pd.Series, lev: int, with_short: bool) -> di
         return dict(n=0, ret=0.0, win=0.0, dd=0.0)
 
     pnls = np.array([(p - FEE_RATE * 2) * lev * 100 for p in trades])
+    # 청산 시 남은 거래는 없음. 누적 수익률이 -100% 아래로 내려가는 건 불가능하도록 cap
     cum  = np.cumsum(pnls)
+    cum  = np.maximum(cum, -100.0)   # 계좌 마이너스 불가
     rm   = np.maximum.accumulate(cum)
     dd   = float(np.max(rm - cum)) if len(cum) > 0 else 0.0
 
     return dict(
         n=len(pnls),
-        ret=round(float(pnls.sum()), 2),
+        ret=round(float(cum[-1]), 2),
         win=round(float((pnls > 0).mean()), 3),
         dd=round(dd, 2),
     )
