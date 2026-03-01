@@ -10,5 +10,6 @@
   "XRP_1d_MACD26/52": true,
   "XRP_4h_MACD26/52": true,
   "SOL_4h_Price>EMA200": false,
-  "SOL_1d_Supertrend3": false
+  "SOL_1d_Supertrend3": false,
+  "XRP_4h_EMA20/100": false
 }
