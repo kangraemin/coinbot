@@ -45,7 +45,7 @@ async def load_initial_candles(exchange, symbol: str) -> None:
 
 
 async def data_loop(exchange, symbol: str) -> None:
-    """WebSocket으로 1분봉을 수신하여 shared_state를 업데이트한다."""
+    """WebSocket으로 4H봉을 수신하여 shared_state를 업데이트한다."""
     sym_data = shared_state[symbol]
     candles = sym_data["candles"]
 
@@ -126,15 +126,17 @@ async def main() -> None:
         symbols_str = " / ".join(s.split("/")[0] for s in cfg.SYMBOLS)
         logger.info("coinbot 시작 — %s %s", symbols_str, cfg.TIMEFRAME)
         param_lines = "\n".join(
-            f"  {s.split('/')[0]}: -{p.get('entry_pct', cfg.ENTRY_DROP_PCT)}% | TP +{p.get('tp_pct', cfg.TP_PCT)}% | SL -{p.get('sl_pct', cfg.SL_PCT)}%"
+            f"  {s.split('/')[0]}: RSI_L<{p['rsi_long']} RSI_S>{p['rsi_short']} SL×{p['sl_mult']} TP×{p['tp_mult']}"
             for s in cfg.SYMBOLS
-            for p in [cfg.SYMBOL_PARAMS.get(s, {})]
+            for p in [cfg.SYMBOL_STRATEGY[s]]
         )
         await report.send_telegram(
-            f"🤖 *coinbot 시작*\n"
+            f"🤖 *coinbot 시작 (4H BB+RSI)*\n"
             f"심볼: {symbols_str}\n"
+            f"타임프레임: {cfg.TIMEFRAME} | EMA200 필터 ON\n"
             f"파라미터 (코인별):\n{param_lines}\n"
-            f"레버리지: {cfg.LEVERAGE}x | 포지션 비율: {int(cfg.POSITION_RATIO * 100)}%/코인"
+            f"레버리지: {cfg.LEVERAGE}x | 포지션 비율: {int(cfg.POSITION_RATIO * 100)}%/코인\n"
+            f"타임아웃: {cfg.SIGNAL_TIMEOUT_HOURS}h"
         )
 
         await asyncio.gather(

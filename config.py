@@ -23,42 +23,33 @@ TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
 SYMBOLS: list[str] = [
     "BTC/USDT:USDT",
     "ETH/USDT:USDT",
-    "SOL/USDT:USDT",
     "XRP/USDT:USDT",
 ]
-TIMEFRAME: str = "1m"
+TIMEFRAME: str = "4h"
 
 # ── 레버리지 & 마진 ─────────────────────────────────
-LEVERAGE: int = 5
+LEVERAGE: int = 3
 MARGIN_TYPE: str = "isolated"
+POSITION_RATIO: float = 0.70   # 코인당 자본 비율 (70%)
 
-# ── 전략 파라미터 (코인별 최적화, 자본 손실 기준 SL 5년 백테스트 기준) ──────────────
-# 공통 기본값
-ENTRY_DROP_PCT: float = 1.5   # prev_close 대비 이 % 이상 하락 시 진입
-TP_PCT: float = 3.0           # 익절 기본값
-SL_PCT: float = 0.2           # 손절 기본값 (자본 1% / 5x = 가격 0.2%)
-POSITION_RATIO: float = 0.20  # 코인당 자본 비율 (20%)
-MAX_POSITIONS: int = 4        # 코인당 1개
-
-# 심볼별 파라미터 오버라이드 (없으면 위 기본값 사용)
-# 자본 손실 1% 기준 SL (sl_pct = sl_capital / leverage = 1% / 5x = 0.2% 가격)
-# BTC: entry 1.5% / TP 2.0% / SL 0.2% → 수익 +88%, MDD 4.0%
-# ETH: entry 1.0% / TP 1.0% / SL 0.2% → 수익 +451%, MDD 12.0%
-# SOL: entry 2.0% / TP 5.0% / SL 0.2% → 수익 +3701%, MDD 10.7%
-# XRP: entry 1.5% / TP 3.0% / SL 0.2% → 수익 +2596%, MDD 9.9%
-SYMBOL_PARAMS: dict[str, dict] = {
-    "BTC/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 2.0, "sl_pct": 0.2},
-    "ETH/USDT:USDT": {"entry_pct": 1.0, "tp_pct": 1.0, "sl_pct": 0.2},
-    "SOL/USDT:USDT": {"entry_pct": 2.0, "tp_pct": 5.0, "sl_pct": 0.2},
-    "XRP/USDT:USDT": {"entry_pct": 1.5, "tp_pct": 3.0, "sl_pct": 0.2},
+# ── 4H BB+RSI 양방향 전략 파라미터 ───────────────────
+# 백테스트 근거 (2022~2025): BTC +157.2%, ETH +157.8%, XRP +133.6%
+# SL=ATR×sl_mult, TP=ATR×tp_mult, EMA200 필터 ON
+SYMBOL_STRATEGY: dict[str, dict] = {
+    "BTC/USDT:USDT": {"rsi_long": 30, "rsi_short": 65, "sl_mult": 2.0, "tp_mult": 3.0},
+    "ETH/USDT:USDT": {"rsi_long": 25, "rsi_short": 65, "sl_mult": 2.0, "tp_mult": 2.0},
+    "XRP/USDT:USDT": {"rsi_long": 25, "rsi_short": 65, "sl_mult": 2.0, "tp_mult": 3.0},
 }
+
+# 포지션 타임아웃: 백테스트 48봉 × 4h = 192시간
+SIGNAL_TIMEOUT_HOURS: int = 192
 
 # ── 리스크 ───────────────────────────────────────────
 MAX_DAILY_LOSS_PCT: float = -5.0
 
-# ── 캔들 버퍼 ────────────────────────────────────────
-CANDLE_BUFFER_SIZE: int = 10
-INITIAL_CANDLE_LOAD: int = 5
+# ── 캔들 버퍼 (EMA200 + 여유) ────────────────────────
+CANDLE_BUFFER_SIZE: int = 250
+INITIAL_CANDLE_LOAD: int = 250
 
 # ── 재연결 ───────────────────────────────────────────
 RECONNECT_DELAY: int = 5
