@@ -1,0 +1,5 @@
+{
+  "BTC_1d_EMA20/100": false,
+  "BTC_4h_EMA50/200": false,
+  "ETH_4h_Price>EMA200": false
+}
