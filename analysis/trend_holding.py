@@ -40,15 +40,15 @@ PERIOD_LABEL = {
 }
 
 BUY_HOLD = {
-    'bear_2026q1': {'BTC': -26.8, 'ETH': -32.8},
-    'bear_2025q4': {'BTC': -23.3, 'ETH': -28.4},
-    'bull_2025q3': {'BTC':  +6.2, 'ETH': +66.3},
-    'bull_2024h2': {'BTC': +47.4, 'ETH':  -2.4},
-    'bear_2024h1': {'BTC': +43.5, 'ETH': +47.0},
-    'bull_2023':   {'BTC':+155.2, 'ETH': +92.1},
+    'bear_2026q1': {'BTC': -26.8, 'ETH': -32.8, 'XRP': -39.4, 'SOL': -41.7},
+    'bear_2025q4': {'BTC': -23.3, 'ETH': -28.4, 'XRP': -28.9, 'SOL': -44.5},
+    'bull_2025q3': {'BTC':  +6.2, 'ETH': +66.3, 'XRP': +39.3, 'SOL': +53.1},
+    'bull_2024h2': {'BTC': +47.4, 'ETH':  -2.4, 'XRP':+338.0, 'SOL': +29.1},
+    'bear_2024h1': {'BTC': +43.5, 'ETH': +47.0, 'XRP': -22.7, 'SOL': +44.1},
+    'bull_2023':   {'BTC':+155.2, 'ETH': +92.1, 'XRP': +81.6, 'SOL':+920.6},
 }
 
-COINS      = ['btc', 'eth']
+COINS      = ['btc', 'eth', 'xrp', 'sol']
 TIMEFRAMES = ['1h', '2h', '4h', '1d']
 LEVERAGES  = [1, 2, 3]
 FEE_RATE   = 0.0005
