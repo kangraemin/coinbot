@@ -1,0 +1,5 @@
+return_pct,max_drawdown,sharpe,calmar,trades,win_rate,scenario
+444.06,52.81,0.69,8.41,0,0.0,BuyHold
+448.73,87.72,0.69,5.12,82,42.7,A_overlay
+121.15,79.92,0.66,1.52,82,42.7,B_partial
+89.52,77.77,0.58,1.15,82,42.7,C_full_switch
