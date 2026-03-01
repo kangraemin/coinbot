@@ -22,9 +22,12 @@ TIMEOUT_BARS = 48   # 타임아웃 봉 수
 
 # 리샘플링 규칙
 RESAMPLE_RULES = {
+    '3m':  '3min',
     '5m':  '5min',
     '15m': '15min',
+    '30m': '30min',
     '1h':  '1h',
+    '2h':  '2h',
     '4h':  '4h',
     '1d':  '1D',
 }
