@@ -9,6 +9,7 @@ EMA200=True: 롱은 price>EMA200, 숏은 price<EMA200
 """
 
 import os
+import sys
 import itertools
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -37,13 +38,23 @@ COINS = ["btc", "eth", "xrp"]
 # B&H 벤치마크 (2022~2025 참고치)
 BH_REF = {"btc": 89.4, "eth": -19.4, "xrp": 121.6}
 
+# 연도별 검증용 확정 파라미터
+BEST_PARAMS = {
+    "btc": dict(rsi_long=30, rsi_short=65, sl_mult=2.0, tp_mode="atr_3x",
+                leverage=7, pos_ratio=0.30, use_ema200=True),
+    "eth": dict(rsi_long=25, rsi_short=65, sl_mult=2.0, tp_mode="atr_2x",
+                leverage=7, pos_ratio=0.30, use_ema200=True),
+    "xrp": dict(rsi_long=25, rsi_short=65, sl_mult=2.0, tp_mode="atr_3x",
+                leverage=7, pos_ratio=0.30, use_ema200=True),
+}
+
 
 # ── 데이터 로드 / 인디케이터 ──────────────────────────
 
 def load_range(coin: str) -> pd.DataFrame:
-    """2021 마지막 60일 + 2022~2025 전체 로드 (EMA200 웜업)."""
+    """2021 마지막 60일 + 2022~2026 전체 로드 (EMA200 웜업)."""
     frames = []
-    for y in range(2021, 2026):
+    for y in range(2021, 2027):
         path = os.path.join(DATA_DIR, f"{coin}_1m_{y}.parquet")
         if not os.path.exists(path):
             continue
@@ -221,6 +232,8 @@ def run_backtest(
     total_trades = long_trades + short_trades
     long_wr  = long_wins  / long_trades  * 100 if long_trades  > 0 else 0.0
     short_wr = short_wins / short_trades * 100 if short_trades > 0 else 0.0
+    total_wins = long_wins + short_wins
+    win_rate = total_wins / total_trades * 100 if total_trades > 0 else 0.0
     calmar   = ret / mdd if mdd > 0 else 0.0
 
     return {
@@ -235,6 +248,7 @@ def run_backtest(
         "trades_per_yr": round(total_trades / 4, 1),
         "long_trades":  long_trades,
         "short_trades": short_trades,
+        "win_rate":       round(win_rate, 1),
         "long_win_rate":  round(long_wr, 1),
         "short_win_rate": round(short_wr, 1),
         "return_pct":   round(ret, 2),
@@ -292,6 +306,64 @@ def worker(coin: str) -> str:
     return out_path
 
 
+def run_robustness_check():
+    """확정 파라미터로 연도별(2022~2026) 독립 실행."""
+    years = list(range(2022, 2027))
+    rows  = []
+
+    print("롱숏 연도별 견고성 검증 (Best 파라미터 고정)")
+    print(f"{'코인':5} {'연도':6} {'수익률':>9} {'MDD':>7} {'승률':>7} {'롱건':>5} {'숏건':>5}")
+    print("-" * 55)
+
+    for coin in COINS:
+        df_1m  = load_range(coin)
+        df_4h  = resample_4h(df_1m)
+        df_4h  = compute_indicators(df_4h)
+        p      = BEST_PARAMS[coin]
+
+        for year in years:
+            s = pd.Timestamp(f"{year}-01-01", tz="UTC")
+            e = pd.Timestamp(f"{year}-12-31 23:59:59", tz="UTC")
+            df_y = df_4h[(df_4h["timestamp"] >= s) & (df_4h["timestamp"] <= e)].reset_index(drop=True)
+
+            if len(df_y) < 10:
+                print(f"{coin.upper():5} {year}   데이터 없음")
+                continue
+
+            r = run_backtest(
+                df_y,
+                rsi_long=p["rsi_long"], rsi_short=p["rsi_short"],
+                sl_mult=p["sl_mult"],   tp_mode=p["tp_mode"],
+                leverage=p["leverage"], pos_ratio=p["pos_ratio"],
+                use_ema200=p["use_ema200"],
+            )
+
+            suffix = " (YTD)" if year == 2026 else ""
+            print(
+                f"{coin.upper():5} {year}{suffix:6} "
+                f"{r['return_pct']:>+8.1f}% "
+                f"{r['max_drawdown']:>6.1f}% "
+                f"{r['win_rate']:>6.1f}% "
+                f"{r['long_trades']:>5}건 "
+                f"{r['short_trades']:>5}건"
+            )
+            rows.append({
+                "coin": coin.upper(), "year": year,
+                "return_pct": r["return_pct"], "max_drawdown": r["max_drawdown"],
+                "win_rate": r["win_rate"],
+                "long_trades": r["long_trades"], "long_win_rate": r["long_win_rate"],
+                "short_trades": r["short_trades"], "short_win_rate": r["short_win_rate"],
+                "trades": r["trades"],
+            })
+
+        print()
+
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    out = os.path.join(RESULTS_DIR, "long_short_robustness.csv")
+    pd.DataFrame(rows).to_csv(out, index=False)
+    print(f"저장: {out}")
+
+
 def main():
     total = len(list(itertools.product(
         RSI_LONG, RSI_SHORT, SL_MULTS, TP_MODES, LEVERAGES, POS_RATIOS, USE_EMA200,
@@ -311,4 +383,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--robustness" in sys.argv:
+        run_robustness_check()
+    else:
+        main()
