@@ -1,19 +1,18 @@
 """
 EMA 트렌드 vs RSI+BB 역추세 전략 통계 비교.
 
-전략 A (EMA 트렌드, 신호 반전까지 홀딩):
-  BTC 4h: EMA50/200 크로스 → 롱 (롱 온리, 3x)
-  ETH 4h: Price > EMA200   → 롱 (롱 온리, 3x)
-  XRP 4h: EMA20/100 크로스 → 롱 (롱 온리, 3x)
+전략 A (EMA 트렌드, 신호 반전까지 홀딩) — 2x 레버리지:
+  BTC 4h: EMA50/200 크로스 → 롱 (롱 온리)  ← 청산 0회 검증
+  ETH 4h: Price > EMA200   → 롱 (롱 온리)  ← 청산 1회(2017) 검증
+  XRP 4h: EMA20/100 크로스 → 롱 (롱 온리)  ← 청산 0회 검증
 
-전략 B (RSI+BB 역추세, 고정 TP/SL) — 확정 파라미터:
+전략 B (RSI+BB 역추세, 고정 TP/SL) — 확정 파라미터 3x 레버리지:
   BTC 4h: RSI<30 + 종가<BB하단 + 종가>EMA200 → 롱  TP=ATR×3, SL=ATR×2
            RSI>65 + 종가>BB상단 + 종가<EMA200 → 숏  TP=ATR×3, SL=ATR×2
   ETH 4h: RSI<25 + 종가<BB하단 + 종가>EMA200 → 롱  TP=ATR×2, SL=ATR×2
            RSI>65 + 종가>BB상단 + 종가<EMA200 → 숏  TP=ATR×2, SL=ATR×2
   XRP 4h: RSI<25 + 종가<BB하단 + 종가>EMA200 → 롱  TP=ATR×3, SL=ATR×2
            RSI>65 + 종가>BB상단 + 종가<EMA200 → 숏  TP=ATR×3, SL=ATR×2
-  공통: BB 20봉/2σ, 레버리지 3x, 포지션 70%
 
 2017~2026 전체 히스토리 14기간 비교.
 실행: python3 analysis/strategy_comparison.py
@@ -32,8 +31,12 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 FEE_RATE = 0.0005   # 0.05%/side
 SLIPPAGE = 0.0003   # 3bp/side
-LEV      = 3
-LIQ_MOVE = 0.317    # 3x 격리마진: 진입가 대비 -31.7% 청산
+
+# 전략별 레버리지 분리
+LEV_A    = 2        # EMA 트렌드: 2x (청산 0회 검증된 레버리지)
+LEV_B    = 3        # RSI+BB: 3x (확정 파라미터)
+LIQ_A    = 0.475    # 2x 청산: -47.5%
+LIQ_B    = 0.317    # 3x 청산: -31.7%
 
 PERIODS = {
     'bull_2017h2':  ('2017-08-01', '2018-01-01'),
@@ -119,10 +122,10 @@ def load_4h(coin: str) -> pd.DataFrame:
 
 
 # ── 공통 요약 ──────────────────────────────────────────────────────
-def _summarize(trades: list) -> dict:
+def _summarize(trades: list, lev: int) -> dict:
     if not trades:
         return dict(n=0, ret=0.0, win=0.0, dd=0.0)
-    pnls = np.array([(p - FEE_RATE * 2) * LEV * 100 for p in trades])
+    pnls = np.array([(p - FEE_RATE * 2) * lev * 100 for p in trades])
     cum  = np.cumsum(pnls)
     cum  = np.maximum(cum, -100.0)   # 계좌 소멸 이후 음수 방지
     rm   = np.maximum.accumulate(cum)
@@ -137,7 +140,7 @@ def _summarize(trades: list) -> dict:
 
 # ── 전략 A: EMA 트렌드 홀딩 ──────────────────────────────────────
 def backtest_trend(df: pd.DataFrame, sig: pd.Series) -> dict:
-    """신호 True → 롱 진입, False → 청산. 청산가 터치 시 강제청산."""
+    """신호 True → 롱 진입, False → 청산. 2x 레버리지 청산가 터치 시 강제청산."""
     opens  = df['open'].values.astype(float)
     lows   = df['low'].values.astype(float)
     closes = df['close'].values.astype(float)
@@ -148,7 +151,7 @@ def backtest_trend(df: pd.DataFrame, sig: pd.Series) -> dict:
     for i in range(1, n):
         if liq:
             break
-        if pos == 'L' and lows[i] <= ep * (1 - LIQ_MOVE):
+        if pos == 'L' and lows[i] <= ep * (1 - LIQ_A):
             trades.append(-1.0)
             liq = True
             break
@@ -163,7 +166,7 @@ def backtest_trend(df: pd.DataFrame, sig: pd.Series) -> dict:
 
     if pos is not None and not liq:
         trades.append((closes[-1] - ep) / ep)
-    return _summarize(trades)
+    return _summarize(trades, LEV_A)
 
 
 # ── 전략 B: RSI+BB 역추세 (고정 TP/SL) ───────────────────────────
@@ -259,7 +262,7 @@ def backtest_rsi_bb(df: pd.DataFrame, inds: dict, coin: str) -> dict:
             trades.append((closes[-1] - ep) / ep)
         else:
             trades.append((ep - closes[-1]) / ep)
-    return _summarize(trades)
+    return _summarize(trades, LEV_B)
 
 
 # ── 코인별 전략 A 신호 정의 ────────────────────────────────────────
@@ -334,7 +337,7 @@ W = 100
 for coin in COINS:
     sub = df_res[df_res['coin'] == coin.upper()]
     print(f'\n{"="*W}')
-    print(f' {coin.upper()} | A: EMA 트렌드 ({EMA_LABEL[coin]})  vs  B: RSI+BB 역추세 | {LEV}x 레버리지')
+    print(f' {coin.upper()} | A: EMA 트렌드 ({EMA_LABEL[coin]}) {LEV_A}x  vs  B: RSI+BB 역추세 {LEV_B}x')
     print(f'{"="*W}')
     print(f'{"기간":<13} {"B&H":>7}  '
           f'{"A수익":>8}{"":1} {"A거래":>5} {"A승률":>5} {"AMDD":>6}  '
