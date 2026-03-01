@@ -1,10 +1,20 @@
 """RSI + 볼린저밴드 과매도 반등 전략 — 1h 그리드 서치.
 
 전략:
-  - close < BB_lower AND RSI < rsi_thresh AND volume > vol_MA × vol_mult → 롱 진입
-  - TP: BB 중간선 도달(bb_mid 모드) 또는 ATR × tp_atr_mult
-  - SL: 진입가 - ATR(14) × sl_atr_mult
-  - 타임아웃: 48봉 강제 청산
+  진입 조건 (ALL 충족):
+    1. close < BB_lower (20, 2σ)
+    2. RSI(14) < rsi_thresh
+    3. volume > vol_MA(20) × vol_mult
+    4. [선택] close > EMA(200) — 불마켓 필터
+
+  청산:
+    - TP 모드:
+        "bb_mid" : 현재 BB 중심선 도달
+        "atr_2x" : 진입가 + ATR × 2
+        "atr_3x" : 진입가 + ATR × 3
+    - SL: 진입가 - ATR(14) × sl_atr_mult
+    - 타임아웃: 48봉 (48시간)
+    - 같은 봉 SL/TP 동시 도달 시 SL 우선
 
 1분봉 데이터를 1시간봉으로 리샘플링해서 사용.
 """
@@ -21,13 +31,13 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "results")
 TAKER_FEE_RATE = 0.0005
 
 # ── 파라미터 그리드 ──────────────────────────────────
-RSI_THRESH   = [25, 30, 35]
-VOL_MULT     = [1.2, 1.5, 2.0]
-SL_ATR_MULT  = [1.0, 1.5, 2.0]
-TP_ATR_MULT  = [2.0, 3.0]
-TP_MODES     = ["bb_mid", "atr"]
-LEVERAGES    = [3, 5, 7]
-POS_RATIOS   = [0.1, 0.2, 0.3]
+RSI_THRESHOLDS  = [25, 30, 35]
+VOL_MULTIPLIERS = [1.2, 1.5, 2.0]
+SL_ATR_MULTS    = [1.0, 1.5, 2.0]
+TP_MODES        = ["bb_mid", "atr_2x", "atr_3x"]
+LEVERAGES       = [3, 5, 7]
+POS_RATIOS      = [0.1, 0.2, 0.3]
+USE_EMA200      = [True, False]
 
 COINS = ["btc", "eth", "sol", "xrp"]
 
@@ -60,64 +70,37 @@ def resample_1h(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """BB(20,2σ), RSI(14), vol_MA(20), ATR(14) 계산."""
-    closes = df["close"].to_numpy(dtype=float)
-    highs  = df["high"].to_numpy(dtype=float)
-    lows   = df["low"].to_numpy(dtype=float)
-    volumes = df["volume"].to_numpy(dtype=float)
-    n = len(closes)
+    """BB(20,2σ), RSI(14), vol_MA(20), ATR(14), EMA(200) 계산."""
+    close  = df["close"].astype(float)
+    high   = df["high"].astype(float)
+    low    = df["low"].astype(float)
+    volume = df["volume"].astype(float)
 
     # Bollinger Bands (20, 2σ)
-    bb_period = 20
-    bb_mid  = np.full(n, np.nan)
-    bb_upper = np.full(n, np.nan)
-    bb_lower = np.full(n, np.nan)
-    for i in range(bb_period - 1, n):
-        window = closes[i - bb_period + 1 : i + 1]
-        m = window.mean()
-        s = window.std(ddof=1)
-        bb_mid[i]   = m
-        bb_upper[i] = m + 2 * s
-        bb_lower[i] = m - 2 * s
+    bb_mid   = close.rolling(20).mean()
+    bb_std   = close.rolling(20).std(ddof=1)
+    bb_upper = bb_mid + 2 * bb_std
+    bb_lower = bb_mid - 2 * bb_std
 
-    # RSI (14)
-    rsi_period = 14
-    rsi = np.full(n, np.nan)
-    if n > rsi_period:
-        deltas = np.diff(closes)
-        gains = np.where(deltas > 0, deltas, 0.0)
-        losses = np.where(deltas < 0, -deltas, 0.0)
-        avg_gain = gains[:rsi_period].mean()
-        avg_loss = losses[:rsi_period].mean()
-        for i in range(rsi_period, n):
-            avg_gain = (avg_gain * (rsi_period - 1) + gains[i - 1]) / rsi_period
-            avg_loss = (avg_loss * (rsi_period - 1) + losses[i - 1]) / rsi_period
-            if avg_loss == 0:
-                rsi[i] = 100.0
-            else:
-                rs = avg_gain / avg_loss
-                rsi[i] = 100.0 - 100.0 / (1.0 + rs)
+    # RSI(14) — Wilder EMA (ewm com = period-1)
+    delta = close.diff()
+    gain  = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+    loss  = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
+    rsi   = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
 
-    # Volume MA (20)
-    vol_ma = np.full(n, np.nan)
-    vol_period = 20
-    for i in range(vol_period - 1, n):
-        vol_ma[i] = volumes[i - vol_period + 1 : i + 1].mean()
+    # Volume MA(20)
+    vol_ma = volume.rolling(20).mean()
 
-    # ATR (14)
-    atr_period = 14
-    atr = np.full(n, np.nan)
-    tr = np.full(n, np.nan)
-    for i in range(1, n):
-        tr[i] = max(
-            highs[i] - lows[i],
-            abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1]),
-        )
-    if n > atr_period:
-        atr[atr_period] = tr[1 : atr_period + 1].mean()
-        for i in range(atr_period + 1, n):
-            atr[i] = (atr[i - 1] * (atr_period - 1) + tr[i]) / atr_period
+    # ATR(14) — Wilder EMA
+    tr = pd.concat([
+        high - low,
+        (high - close.shift(1)).abs(),
+        (low  - close.shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    atr = tr.ewm(com=13, adjust=False).mean()
+
+    # EMA(200)
+    ema200 = close.ewm(span=200, adjust=False).mean()
 
     df = df.copy()
     df["bb_mid"]   = bb_mid
@@ -126,6 +109,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["rsi"]      = rsi
     df["vol_ma"]   = vol_ma
     df["atr"]      = atr
+    df["ema200"]   = ema200
     return df
 
 
@@ -134,10 +118,10 @@ def run_backtest(
     rsi_thresh: float,
     vol_mult: float,
     sl_atr_mult: float,
-    tp_atr_mult: float,
     tp_mode: str,
     leverage: int,
     pos_ratio: float,
+    use_ema200: bool,
     timeout_bars: int = 48,
     initial_balance: float = 1000.0,
 ) -> dict:
@@ -150,6 +134,7 @@ def run_backtest(
     rsi_arr  = df["rsi"].to_numpy(dtype=float)
     vol_ma   = df["vol_ma"].to_numpy(dtype=float)
     atr_arr  = df["atr"].to_numpy(dtype=float)
+    ema200   = df["ema200"].to_numpy(dtype=float)
     n = len(closes)
 
     balance = initial_balance
@@ -160,21 +145,27 @@ def run_backtest(
 
     in_position = False
     entry_price = sl_price = tp_price = 0.0
-    bb_mid_at_entry = 0.0
     position_amount = 0.0
     entry_bar = 0
 
-    # 지표가 모두 준비되는 인덱스부터 시작
-    start = 34  # max(bb_period=20, rsi=14, vol_ma=20, atr=14) + 여유
+    # EMA200 웜업 포함 — 220봉부터 신호 체크
+    start = 220
 
     for i in range(start, n):
-        if np.isnan(bb_lower[i]) or np.isnan(rsi_arr[i]) or np.isnan(vol_ma[i]) or np.isnan(atr_arr[i]):
+        if (np.isnan(bb_lower[i]) or np.isnan(rsi_arr[i]) or
+                np.isnan(vol_ma[i]) or np.isnan(atr_arr[i]) or
+                np.isnan(ema200[i])):
             continue
 
         if not in_position:
             if balance <= 0:
                 break
-            # 진입 조건: BB 하단 이탈 + RSI 과매도 + 볼륨 급증
+
+            # EMA200 트렌드 필터 (선택)
+            if use_ema200 and closes[i] <= ema200[i]:
+                continue
+
+            # 진입 조건
             if (closes[i] < bb_lower[i] and
                     rsi_arr[i] < rsi_thresh and
                     volumes[i] > vol_ma[i] * vol_mult):
@@ -187,31 +178,27 @@ def run_backtest(
 
                 atr_val = atr_arr[i]
                 sl_price = entry_price - atr_val * sl_atr_mult
-                if tp_mode == "atr":
-                    tp_price = entry_price + atr_val * tp_atr_mult
+                if tp_mode == "atr_2x":
+                    tp_price = entry_price + atr_val * 2.0
+                elif tp_mode == "atr_3x":
+                    tp_price = entry_price + atr_val * 3.0
                 else:
-                    tp_price = 0.0  # bb_mid 모드: 동적으로 체크
-                bb_mid_at_entry = bb_mid[i]
+                    tp_price = 0.0  # bb_mid: 매 봉 동적 체크
                 entry_bar = i
                 in_position = True
         else:
             exit_price = None
             won = False
 
-            # bb_mid 모드: 현재 bb_mid 기준으로 TP 체크
-            if tp_mode == "bb_mid":
-                tp_check = bb_mid[i]
-            else:
-                tp_check = tp_price
+            # bb_mid 모드: 현재 BB 중심선
+            tp_check = bb_mid[i] if tp_mode == "bb_mid" else tp_price
 
-            # SL 우선 (같은 봉에서 SL+TP 동시 도달 시 SL)
+            # SL 우선 (동시 도달 시 SL)
             if lows[i] <= sl_price:
                 exit_price = sl_price
-                won = False
-            elif highs[i] >= tp_check and tp_check > entry_price:
+            elif tp_check > entry_price and highs[i] >= tp_check:
                 exit_price = tp_check
                 won = True
-            # 타임아웃: 48봉 초과
             elif i - entry_bar >= timeout_bars:
                 exit_price = closes[i]
                 won = exit_price > entry_price
@@ -244,15 +231,16 @@ def run_backtest(
         "rsi_thresh":   rsi_thresh,
         "vol_mult":     vol_mult,
         "sl_atr_mult":  sl_atr_mult,
-        "tp_atr_mult":  tp_atr_mult,
         "tp_mode":      tp_mode,
         "leverage":     leverage,
         "pos_ratio":    pos_ratio,
+        "use_ema200":   use_ema200,
         "trades":       trades,
         "win_rate":     round(win_rate, 1),
         "return_pct":   round(ret, 2),
         "max_drawdown": round(max_drawdown, 2),
         "calmar":       round(calmar, 2),
+        "timeframe":    "1h",
     }
 
 
@@ -268,12 +256,16 @@ def worker(coin: str) -> str:
         return f"{coin}/1h: FAILED"
 
     combos = list(itertools.product(
-        RSI_THRESH, VOL_MULT, SL_ATR_MULT, TP_ATR_MULT, TP_MODES, LEVERAGES, POS_RATIOS
+        RSI_THRESHOLDS, VOL_MULTIPLIERS, SL_ATR_MULTS,
+        TP_MODES, LEVERAGES, POS_RATIOS, USE_EMA200,
     ))
 
     results = []
-    for rsi_thresh, vol_mult, sl_atr, tp_atr, tp_mode, leverage, pos_ratio in combos:
-        r = run_backtest(df, rsi_thresh, vol_mult, sl_atr, tp_atr, tp_mode, leverage, pos_ratio)
+    for rsi_thresh, vol_mult, sl_atr, tp_mode, leverage, pos_ratio, ema200_flag in combos:
+        r = run_backtest(
+            df, rsi_thresh, vol_mult, sl_atr, tp_mode,
+            leverage, pos_ratio, ema200_flag,
+        )
         results.append(r)
 
     df_res = pd.DataFrame(results).sort_values("return_pct", ascending=False)
@@ -286,8 +278,9 @@ def worker(coin: str) -> str:
     print(
         f"[{coin.upper()} 1h] 완료 — {len(results)}조합 | "
         f"Best: RSI<{best['rsi_thresh']} vol×{best['vol_mult']} "
-        f"sl_atr×{best['sl_atr_mult']} tp={best['tp_mode']}(×{best['tp_atr_mult']}) "
-        f"lev={best['leverage']}x pos={best['pos_ratio']*100:.0f}% → "
+        f"sl_atr×{best['sl_atr_mult']} tp={best['tp_mode']} "
+        f"lev={best['leverage']}x pos={best['pos_ratio']*100:.0f}% "
+        f"EMA200={'ON' if best['use_ema200'] else 'OFF'} → "
         f"수익률={best['return_pct']:+.1f}% MDD={best['max_drawdown']:.1f}% "
         f"승률={best['win_rate']:.1f}% 거래={best['trades']}건 Calmar={best['calmar']:.2f}",
         flush=True
@@ -297,7 +290,8 @@ def worker(coin: str) -> str:
 
 def main():
     combos_total = len(list(itertools.product(
-        RSI_THRESH, VOL_MULT, SL_ATR_MULT, TP_ATR_MULT, TP_MODES, LEVERAGES, POS_RATIOS
+        RSI_THRESHOLDS, VOL_MULTIPLIERS, SL_ATR_MULTS,
+        TP_MODES, LEVERAGES, POS_RATIOS, USE_EMA200,
     )))
     print("RSI + 볼린저밴드 과매도 반등 전략 그리드 서치")
     print(f"타임프레임: 1h | 코인: {[c.upper() for c in COINS]}")
