@@ -7,7 +7,16 @@
   2. 노션 DB 기록
 
 실행: python3 analysis/signal_monitor.py
-크론 예시 (4h봉 마감마다): 0 */4 * * * python3 /path/to/signal_monitor.py
+크론 예시 (4h봉 마감마다): 5 */4 * * * python3 /path/to/signal_monitor.py
+
+── 전략 근거 (2017~2026 전체 히스토리 백테스트) ──────────────────────
+BTC 1d EMA20/100:   12/14기간 B&H 초과 (86%), avg +114.9%, MDD 7.6%
+BTC 4h EMA50/200:   12/14기간 B&H 초과 (86%), avg +175.8%
+ETH 4h c>EMA200:    13/14기간 B&H 초과 (93%), avg +141.2%  ← 최고
+ETH 4h EMA20/100:   13/14기간 B&H 초과 (93%), avg +130.1%
+XRP 1d MACD26/52:   10/13기간 B&H 초과 (77%), avg +85.8%   (2x L)
+SOL 4h c>EMA200:     7/11기간 B&H 초과 (64%), avg +389.4%
+SOL 1d Supertrend:   7/11기간 B&H 초과 (64%), avg +532.1%
 """
 
 import json
@@ -43,9 +52,9 @@ if _claude_env.exists():
 STATE_FILE = Path(__file__).parent / "output" / "signal_state.json"
 
 # ── 감시할 전략 ────────────────────────────────────────────
-# (coin, timeframe, strategy_name, signal_func)
-# 백테스트 결과 상위 전략
+# 2017~2026 전체 히스토리 백테스트 기반 최적 파라미터
 STRATEGIES = [
+    # ── BTC ───────────────────────────────────────────────
     {
         "coin":     "BTC",
         "symbol":   "BTC/USDT",
@@ -53,7 +62,7 @@ STRATEGIES = [
         "name":     "EMA20/100",
         "desc":     "일봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
         "leverage": "3x",
-        "backtest": "BTC/ETH 6/6 기간 B&H 초과 | 평균수익 +65%",
+        "backtest": "12/14기간 B&H 초과 (86%) | avg +114.9% | MDD 7.6%",
     },
     {
         "coin":     "BTC",
@@ -62,8 +71,9 @@ STRATEGIES = [
         "name":     "EMA50/200",
         "desc":     "4시간봉 EMA50이 EMA200 위로 → 매수 / 아래로 → 매도",
         "leverage": "2x",
-        "backtest": "BTC/ETH 6/6 기간 B&H 초과 | 평균수익 +55%",
+        "backtest": "12/14기간 B&H 초과 (86%) | avg +175.8%",
     },
+    # ── ETH ───────────────────────────────────────────────
     {
         "coin":     "ETH",
         "symbol":   "ETH/USDT",
@@ -71,53 +81,103 @@ STRATEGIES = [
         "name":     "Price>EMA200",
         "desc":     "4시간봉 종가가 EMA200 위 → 매수 / 아래 → 매도",
         "leverage": "2x",
-        "backtest": "BTC/ETH 6/6 기간 B&H 초과 | 평균수익 +61%",
+        "backtest": "13/14기간 B&H 초과 (93%) | avg +141.2%  ← ETH 최고 전략",
+    },
+    {
+        "coin":     "ETH",
+        "symbol":   "ETH/USDT",
+        "tf":       "4h",
+        "name":     "EMA20/100",
+        "desc":     "4시간봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
+        "leverage": "2x",
+        "backtest": "13/14기간 B&H 초과 (93%) | avg +130.1%",
+    },
+    # ── XRP ───────────────────────────────────────────────
+    {
+        "coin":     "XRP",
+        "symbol":   "XRP/USDT",
+        "tf":       "1d",
+        "name":     "MACD26/52",
+        "desc":     "일봉 MACD(26,52,18) 히스토그램 > 0 → 매수 / ≤ 0 → 매도",
+        "leverage": "2x",
+        "backtest": "10/13기간 B&H 초과 (77%) | avg +85.8%",
     },
     {
         "coin":     "XRP",
         "symbol":   "XRP/USDT",
         "tf":       "4h",
-        "name":     "EMA50/200",
-        "desc":     "4시간봉 EMA50이 EMA200 위로 → 매수 / 아래로 → 매도",
+        "name":     "MACD26/52",
+        "desc":     "4시간봉 MACD(26,52,18) 히스토그램 > 0 → 매수 / ≤ 0 → 매도",
         "leverage": "2x",
-        "backtest": "BTC/ETH 검증 전략 XRP 적용 (백테스트 미실시)",
+        "backtest": "9/13기간 B&H 초과 (69%) | avg +66.3% (1x L+S 기준)",
     },
-    {
-        "coin":     "XRP",
-        "symbol":   "XRP/USDT",
-        "tf":       "1d",
-        "name":     "EMA20/100",
-        "desc":     "일봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
-        "leverage": "2x",
-        "backtest": "BTC/ETH 검증 전략 XRP 적용 (백테스트 미실시)",
-    },
+    # ── SOL ───────────────────────────────────────────────
     {
         "coin":     "SOL",
         "symbol":   "SOL/USDT",
         "tf":       "4h",
-        "name":     "EMA50/200",
-        "desc":     "4시간봉 EMA50이 EMA200 위로 → 매수 / 아래로 → 매도",
+        "name":     "Price>EMA200",
+        "desc":     "4시간봉 종가가 EMA200 위 → 매수 / 아래 → 매도",
         "leverage": "2x",
-        "backtest": "BTC/ETH 검증 전략 SOL 적용 (백테스트 미실시)",
+        "backtest": "7/11기간 B&H 초과 (64%) | avg +389.4%",
     },
     {
         "coin":     "SOL",
         "symbol":   "SOL/USDT",
         "tf":       "1d",
-        "name":     "EMA20/100",
-        "desc":     "일봉 EMA20이 EMA100 위로 → 매수 / 아래로 → 매도",
+        "name":     "Supertrend3",
+        "desc":     "일봉 Supertrend(period=10, mult=3.0) 상승추세 → 매수 / 하강 → 매도",
         "leverage": "2x",
-        "backtest": "BTC/ETH 검증 전략 SOL 적용 (백테스트 미실시)",
+        "backtest": "7/11기간 B&H 초과 (64%) | avg +532.1%",
     },
 ]
 
 TF_MAP = {"1d": "1d", "4h": "4h", "1h": "1h"}
-CANDLE_LIMIT = 250  # EMA200 계산에 충분한 봉 수
+CANDLE_LIMIT = 300  # MACD(26,52,18) + EMA200 계산에 충분한 봉 수
 
 
 # ── 인디케이터 ─────────────────────────────────────────────
 def ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
+
+
+def supertrend_signal(df: pd.DataFrame, period: int = 10, mult: float = 3.0) -> bool:
+    """True = 상승추세(롱), False = 하강추세"""
+    h = df["high"].values.astype(float)
+    l = df["low"].values.astype(float)
+    c = df["close"].values.astype(float)
+    n = len(df)
+
+    tr = np.empty(n)
+    tr[0] = h[0] - l[0]
+    for i in range(1, n):
+        tr[i] = max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1]))
+
+    alpha = 2 / (period + 1)
+    atr = np.empty(n)
+    atr[0] = tr[0]
+    for i in range(1, n):
+        atr[i] = alpha * tr[i] + (1 - alpha) * atr[i-1]
+
+    mid = (h + l) / 2
+    bu = mid + mult * atr
+    bl = mid - mult * atr
+    fu = np.empty(n)
+    fl = np.empty(n)
+    fu[0], fl[0] = bu[0], bl[0]
+    direction = np.ones(n, dtype=bool)
+
+    for i in range(1, n):
+        fl[i] = bl[i] if bl[i] > fl[i-1] or c[i-1] < fl[i-1] else fl[i-1]
+        fu[i] = bu[i] if bu[i] < fu[i-1] or c[i-1] > fu[i-1] else fu[i-1]
+        if c[i] > fu[i-1]:
+            direction[i] = True
+        elif c[i] < fl[i-1]:
+            direction[i] = False
+        else:
+            direction[i] = direction[i-1]
+
+    return bool(direction[-1])
 
 
 def get_signal(df: pd.DataFrame, strategy_name: str) -> bool:
@@ -127,8 +187,14 @@ def get_signal(df: pd.DataFrame, strategy_name: str) -> bool:
         return bool(ema(c, 20).iloc[-1] > ema(c, 100).iloc[-1])
     elif strategy_name == "EMA50/200":
         return bool(ema(c, 50).iloc[-1] > ema(c, 200).iloc[-1])
-    elif strategy_name == "Price>EMA200":
+    elif strategy_name in ("Price>EMA200",):
         return bool(c.iloc[-1] > ema(c, 200).iloc[-1])
+    elif strategy_name == "MACD26/52":
+        ml = ema(c, 26) - ema(c, 52)
+        hist = ml - ema(ml, 18)
+        return bool(hist.iloc[-1] > 0)
+    elif strategy_name == "Supertrend3":
+        return supertrend_signal(df, period=10, mult=3.0)
     raise ValueError(f"unknown strategy: {strategy_name}")
 
 
