@@ -1,17 +1,19 @@
-"""Dual-Tier 시그널 백테스트 — XRP, SOL, 2023~2025.
+"""Dual-Tier 시그널 백테스트 — XRP, SOL, ETH, BTC, 2023~2025.
 
 개념:
   Tier 1 (4h, 고품질): BB+RSI 과매도 → 30% 비중
   Tier 2 (1h, 중품질): BB+RSI 과매도 → 15% 비중
-  - 코인당 최대 1개 포지션
-  - Tier 1 우선: Tier 1 포지션 활성 중 Tier 2 스킵
-  - 각 포지션 독립 TP/SL/타임아웃 관리
+  - Tier 1 선점: Tier 2 활성 중 Tier 1 신호 → Tier 2 청산 후 Tier 1 진입
+  - Tier 1 없는 코인(BTC): Tier 2 단독 운영
 
 파라미터 (확정값):
   XRP Tier1(4h): RSI<30, sl×1.5, tp=bb_mid,  7x, 30%, EMA200=OFF
   XRP Tier2(1h): RSI<40, sl×1.0, tp=atr_3x,  7x, 15%, EMA200=ON
   SOL Tier1(4h): RSI<45, sl×1.0, tp=atr_2x,  7x, 30%, EMA200=ON
   SOL Tier2(1h): RSI<40, sl×2.0, tp=bb_mid,  7x, 15%, EMA200=ON
+  ETH Tier1(4h): RSI<45, sl×2.0, tp=atr_2x,  7x, 30%, EMA200=ON
+  ETH Tier2(1h): RSI<45, sl×2.0, tp=atr_2x,  7x, 15%, EMA200=ON
+  BTC Tier2(1h): RSI<35, sl×1.0, tp=atr_3x,  3x, 10%, EMA200=ON  (Tier1 없음)
 """
 
 import os
@@ -40,6 +42,8 @@ class TierParams:
     timeout_bars: int       # 해당 타임프레임 기준 봉 수
 
 
+_DISABLED_TIER1 = TierParams(0, 1.0, "atr_2x", 1, 0.0, True, 48)  # rsi_thresh=0 → 절대 발동 안 함
+
 CONFIGS = {
     "xrp": {
         "tier1": TierParams(30,  1.5, "bb_mid",  7, 0.30, False, 48),
@@ -49,9 +53,17 @@ CONFIGS = {
         "tier1": TierParams(45,  1.0, "atr_2x",  7, 0.30, True,  48),
         "tier2": TierParams(40,  2.0, "bb_mid",  7, 0.15, True,  48),
     },
+    "eth": {
+        "tier1": TierParams(45,  2.0, "atr_2x",  7, 0.30, True,  48),
+        "tier2": TierParams(45,  2.0, "atr_2x",  7, 0.15, True,  48),
+    },
+    "btc": {
+        "tier1": _DISABLED_TIER1,  # 4h 손실 — Tier1 비활성
+        "tier2": TierParams(35,  1.0, "atr_3x",  3, 0.10, True,  48),
+    },
 }
 
-COINS = ["xrp", "sol"]
+COINS = ["xrp", "sol", "eth", "btc"]
 
 
 # ── 데이터 로드 ─────────────────────────────────────
