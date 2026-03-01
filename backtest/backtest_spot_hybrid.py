@@ -1,15 +1,11 @@
-"""현물 보유 + Tier 1 선물 조합 — 3가지 시나리오 비교.
+"""현물 보유 + Tier 1 선물 조합 — 시나리오 비교.
 
 시나리오:
-  A (Overlay)       : 현물 100% 유지 + Tier1 신호 시 선물 추가
+  BuyHold          : 현물 100% 단순 보유
+  FuturesOnly      : 선물 전용 (Tier1 4h 파라미터)
   B (Partial Hybrid): Tier1 신호 시 현물 30% → 선물 전환, 청산 후 현물 복귀
-  C (Full Switch)   : Tier1 신호 시 현물 전량 매도 → 선물 진입, 청산 후 현물 재매수
 
-벤치마크:
-  Buy & Hold: 현물만 보유
-  Futures-only: 기존 4h Tier1 선물 전용
-
-코인: XRP, SOL | 기간: 2023~2025
+코인: XRP, SOL | 기간: 2022~2025 (4년, 2022 하락장 포함)
 """
 
 import os
@@ -21,7 +17,7 @@ DATA_DIR    = os.path.join(os.path.dirname(__file__), "..", "data", "market")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "results")
 TAKER_FEE   = 0.0005
 INITIAL_BAL = 1000.0
-START       = "2023-01-01"
+START       = "2022-01-01"
 END         = "2025-12-31"
 
 # Tier1 확정 파라미터 (4h)
@@ -39,7 +35,7 @@ COINS = ["xrp", "sol"]
 
 def load_data(coin: str) -> pd.DataFrame:
     frames = []
-    for y in range(2022, 2026):
+    for y in range(2021, 2026):  # 2021 포함: EMA200 웜업용
         p = os.path.join(DATA_DIR, f"{coin}_1m_{y}.parquet")
         if os.path.exists(p):
             df = pd.read_parquet(p)
@@ -364,6 +360,70 @@ def run_scenario_c(df: pd.DataFrame, p: dict) -> dict:
     return st, port_vals, ts
 
 
+def run_futures_only(df: pd.DataFrame, p: dict) -> dict:
+    """선물 전용: 현물 없이 Tier1 신호로만 거래."""
+    closes   = df["close"].to_numpy(float)
+    highs    = df["high"].to_numpy(float)
+    lows     = df["low"].to_numpy(float)
+    ts       = df["timestamp"].to_numpy()
+    t1_close = df["t1_close"].to_numpy(float)
+    t1_bb_low= df["t1_bb_lower"].to_numpy(float)
+    t1_bb_mid= df["t1_bb_mid"].to_numpy(float)
+    t1_rsi   = df["t1_rsi"].to_numpy(float)
+    t1_atr   = df["t1_atr"].to_numpy(float)
+    t1_ema   = df["t1_ema200"].to_numpy(float)
+    n = len(closes)
+
+    balance  = INITIAL_BAL
+    peak     = INITIAL_BAL
+    in_pos   = False
+    ep = sl = tp = pos_amt = entry_bar = 0.0
+    tp_mode  = p["tp_mode"]
+    trades   = wins = 0
+
+    port_vals = np.empty(n)
+
+    for i in range(n):
+        unreal = (closes[i] - ep) * pos_amt if in_pos else 0.0
+        port_vals[i] = balance + unreal
+        if port_vals[i] > peak:
+            peak = port_vals[i]
+
+        if in_pos:
+            tp_check = t1_bb_mid[i] if tp_mode == "bb_mid" else tp
+            exit_p = None
+            if lows[i] <= sl:
+                exit_p = sl
+            elif tp_check > ep and highs[i] >= tp_check:
+                exit_p = tp_check; wins += 1
+            elif i - entry_bar >= p["timeout_1h"]:
+                exit_p = closes[i]
+                if exit_p > ep: wins += 1
+            if exit_p is not None:
+                pnl = (exit_p - ep) * pos_amt
+                fee = exit_p * pos_amt * TAKER_FEE
+                balance += pnl - fee
+                trades += 1
+                in_pos = False
+
+        if not in_pos and balance > 0 and tier1_signal(i, t1_close, t1_bb_low, t1_rsi, t1_atr, t1_ema, p):
+            ep = t1_close[i]
+            notional = balance * p["pos_ratio"] * p["leverage"]
+            pos_amt  = notional / ep
+            balance -= notional * TAKER_FEE
+            sl  = calc_sl(ep, t1_atr[i], p["sl_atr_mult"])
+            tp  = calc_tp(ep, t1_atr[i], tp_mode, t1_bb_mid[i])
+            entry_bar = i
+            in_pos = True
+
+    mr = monthly_series(ts, port_vals)
+    st = portfolio_stats(port_vals, mr)
+    st["trades"] = trades
+    st["win_rate"] = round(wins/trades*100, 1) if trades else 0.0
+    st["scenario"] = "FuturesOnly"
+    return st, port_vals, ts
+
+
 def run_buy_hold(df: pd.DataFrame) -> dict:
     closes = df["close"].to_numpy(float)
     ts     = df["timestamp"].to_numpy()
@@ -377,10 +437,8 @@ def run_buy_hold(df: pd.DataFrame) -> dict:
 
 
 def print_results(coin: str, results: list):
-    ref_futures = {"xrp": 474.8, "sol": 389.1}
     print(f"\n{'='*70}")
-    print(f"[{coin.upper()}] 시나리오 비교 (2023~2025)")
-    print(f"  벤치마크 선물전용(Tier1): {ref_futures[coin]:+.1f}%")
+    print(f"[{coin.upper()}] 시나리오 비교 ({START[:4]}~{END[:4]})")
     print(f"\n  {'시나리오':18} {'수익률':>10} {'MDD':>8} {'샤프':>7} {'Calmar':>8} {'거래':>6} {'승률':>7}")
     print(f"  {'-'*68}")
     for st, _, _ in results:
@@ -421,7 +479,7 @@ def save_results(coin: str, results: list):
 
 
 def main():
-    print("현물 + 선물 하이브리드 시나리오 비교")
+    print("현물 + 선물 하이브리드 시나리오 비교 (4년치, 2022 하락장 포함)")
     print(f"코인: {[c.upper() for c in COINS]} | 기간: {START} ~ {END}\n")
 
     for coin in COINS:
@@ -429,12 +487,11 @@ def main():
         df = build_arrays(coin)
         p  = TIER1[coin]
 
-        r_bh = run_buy_hold(df)
-        r_a  = run_scenario_a(df, p)
-        r_b  = run_scenario_b(df, p)
-        r_c  = run_scenario_c(df, p)
+        r_bh  = run_buy_hold(df)
+        r_fut = run_futures_only(df, p)
+        r_b   = run_scenario_b(df, p)
 
-        results = [r_bh, r_a, r_b, r_c]
+        results = [r_bh, r_fut, r_b]
         print_results(coin, results)
 
         path = save_results(coin, results)
