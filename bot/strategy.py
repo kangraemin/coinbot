@@ -252,12 +252,8 @@ async def _close_position(exchange, symbol: str, exit_price: float, reason: str)
 
 async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
     """단일 심볼 전략 처리."""
-    state   = _pos[symbol]
-    sym     = shared_state.get(symbol, {})
-    candles = sym.get("candles")
-
-    if not candles:
-        return
+    state = _pos[symbol]
+    sym   = shared_state.get(symbol, {})
 
     # ── C: 포지션 보유 중 ────────────────────────────────
     if state["has_position"]:
@@ -299,6 +295,10 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
         return
 
     # ── A: 신호 확인 + 진입 ─────────────────────────────
+    candles = sym.get("candles")
+    if not candles:
+        return
+
     ind = _compute_indicators(candles)
     if ind is None:
         logger.debug("[%s] 인디케이터 부족 (캔들 %d개)", symbol, len(candles))
