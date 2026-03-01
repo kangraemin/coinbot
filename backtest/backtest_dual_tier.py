@@ -132,11 +132,15 @@ def run_dual_tier(coin: str) -> dict:
     df_1h = add_indicators(df_1h)
     df_4h = add_indicators(df_4h)
 
-    # 4h 지표를 1h 타임라인에 merge (4h 캔들 마감 시각에만 값, 나머지 NaN)
+    # 4h 지표를 1h 타임라인에 merge
+    # - 진입 신호용 (close/rsi/bb_lower/atr/ema200): 4h 마감 시각에만 값 (NaN으로 신호 감지)
+    # - 포지션 관리용 (bb_mid): forward-fill로 현재 4h bb_mid를 항상 참조 가능하게
     df_4h_idx = df_4h.set_index("timestamp")[
         ["close", "high", "low", "bb_mid", "bb_lower", "rsi", "atr", "ema200"]
     ].rename(columns=lambda c: f"t1_{c}")
     df = df_1h.join(df_4h_idx, on="timestamp", how="left")
+    # bb_mid만 ffill — TP 체크 시 현재 4h 중심선을 매 1h 봉에서 사용
+    df["t1_bb_mid"] = df["t1_bb_mid"].ffill()
 
     # 평가 구간
     s = pd.Timestamp(START, tz="UTC")
