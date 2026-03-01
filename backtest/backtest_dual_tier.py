@@ -247,28 +247,30 @@ def run_dual_tier(coin: str) -> dict:
                 if dd > max_dd:
                     max_dd = dd
 
-        # ── 신호 체크 (포지션 없을 때만) ──
-        if position is None and balance > 0:
-            # Tier 1: 4h 캔들 마감 시각에만 신호 (t1_close가 NaN이 아님)
-            if not np.isnan(t1_close[i]):
-                ok1 = (not np.isnan(t1_bb_low[i]) and
-                       not np.isnan(t1_rsi[i]) and
-                       not np.isnan(t1_atr[i]) and
-                       not np.isnan(t1_ema[i]))
-                if ok1:
-                    ema_pass1 = (not cfg1.use_ema200) or (t1_close[i] > t1_ema[i])
-                    if ema_pass1 and t1_close[i] < t1_bb_low[i] and t1_rsi[i] < cfg1.rsi_thresh:
-                        # Tier 1 진입 (4h 기준 타임아웃 = 48봉 × 4 = 192 1h봉)
-                        enter(1, t1_close[i], t1_atr[i], t1_bb_mid[i],
-                              cfg1.tp_mode, cfg1.pos_ratio, cfg1.leverage,
-                              cfg1.timeout_bars * 4, i)
-                        continue
+        # ── 신호 체크: Tier 1 선점(Preemption) 로직 ──
+        # Tier 1 신호 체크 (4h 캔들 마감 시각에만)
+        tier1_signal = False
+        if not np.isnan(t1_close[i]) and balance > 0:
+            ok1 = (not np.isnan(t1_bb_low[i]) and not np.isnan(t1_rsi[i]) and
+                   not np.isnan(t1_atr[i]) and not np.isnan(t1_ema[i]))
+            if ok1:
+                ema_pass1 = (not cfg1.use_ema200) or (t1_close[i] > t1_ema[i])
+                if ema_pass1 and t1_close[i] < t1_bb_low[i] and t1_rsi[i] < cfg1.rsi_thresh:
+                    tier1_signal = True
 
-            # Tier 2: 1h 신호 (Tier 1 없을 때만)
-            ok2 = (not np.isnan(bb_low_1h[i]) and
-                   not np.isnan(rsi_1h[i]) and
-                   not np.isnan(atr_1h[i]) and
-                   not np.isnan(ema_1h[i]))
+        if tier1_signal:
+            # Tier 2 포지션 활성 중이면 즉시 시가 청산 후 Tier 1 진입
+            if position is not None and position.tier == 2:
+                exit_pos(t1_close[i], i, t1_close[i] > position.entry_price)
+            if position is None:
+                enter(1, t1_close[i], t1_atr[i], t1_bb_mid[i],
+                      cfg1.tp_mode, cfg1.pos_ratio, cfg1.leverage,
+                      cfg1.timeout_bars * 4, i)
+
+        # Tier 2 신호 체크 (Tier 1 포지션 없을 때만)
+        elif position is None and balance > 0:
+            ok2 = (not np.isnan(bb_low_1h[i]) and not np.isnan(rsi_1h[i]) and
+                   not np.isnan(atr_1h[i]) and not np.isnan(ema_1h[i]))
             if ok2:
                 ema_pass2 = (not cfg2.use_ema200) or (closes[i] > ema_1h[i])
                 if ema_pass2 and closes[i] < bb_low_1h[i] and rsi_1h[i] < cfg2.rsi_thresh:
