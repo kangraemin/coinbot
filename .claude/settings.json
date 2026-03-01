@@ -1,0 +1,6 @@
+{
+  "env": {
+    "WORKLOG_DEST": "notion-only",
+    "WORKLOG_GIT_TRACK": "false"
+  }
+}
