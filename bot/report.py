@@ -85,6 +85,7 @@ async def send_trade_alert(
     tp_price: float | None = None,
     sl_price: float | None = None,
     symbol: str | None = None,
+    leverage: int = 1,
 ) -> None:
     """매매 체결 알림을 발송한다."""
     coin = symbol.split("/")[0] if symbol else "?"
@@ -94,11 +95,16 @@ async def send_trade_alert(
         f"방향: {side.upper()}\n"
         f"가격: {price:,.4f} USDT\n"
         f"수량: {amount:.6f}\n"
+        f"레버리지: {leverage}x\n"
     )
     if tp_price:
-        msg += f"익절: {tp_price:,.4f}\n"
+        pnl_pct = abs(tp_price - price) / price * leverage * 100
+        pnl_usdt = abs(tp_price - price) * amount
+        msg += f"익절: {tp_price:,.4f} (+{pnl_pct:.1f}% / +${pnl_usdt:.2f})\n"
     if sl_price:
-        msg += f"손절: {sl_price:,.4f}\n"
+        loss_pct = abs(sl_price - price) / price * leverage * 100
+        loss_usdt = abs(sl_price - price) * amount
+        msg += f"손절: {sl_price:,.4f} (-{loss_pct:.1f}% / -${loss_usdt:.2f})\n"
 
     await send_telegram(msg)
 

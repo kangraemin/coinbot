@@ -209,15 +209,18 @@ async def _place_tp_sl(
 
     try:
         sl_order = await exchange.create_order(
-            symbol, "STOP_MARKET", sl_side, amount, None,
-            {"stopPrice": sl_price, "reduceOnly": True},
+            symbol, "STOP_MARKET", sl_side, 0, None,
+            {"stopPrice": sl_price, "closePosition": True},
         )
         sl_id = sl_order["id"]
         logger.info("[%s] SL 주문 — @ %.4f", symbol, sl_price)
     except Exception as e:
         logger.error("[%s] SL 주문 실패: %s", symbol, e)
 
-    await report.send_trade_alert(direction, entry_price, amount, tp_price, sl_price, symbol=symbol)
+    await report.send_trade_alert(
+        direction, entry_price, amount, tp_price, sl_price,
+        symbol=symbol, leverage=cfg.LEVERAGE,
+    )
     return tp_id, sl_id
 
 
@@ -367,6 +370,18 @@ async def _restore_state(exchange) -> None:
                     "[%s] 포지션 복원 — %s %.6f @ %.4f",
                     symbol, state["direction"], state["amount"], state["entry_price"],
                 )
+                try:
+                    open_orders = await exchange.fetch_open_orders(symbol)
+                    for o in open_orders:
+                        ot = (o.get("type") or "").upper()
+                        if ot == "LIMIT":
+                            state["tp_order_id"] = o["id"]
+                            logger.info("[%s] TP 복원: %s", symbol, o["id"])
+                        elif "STOP" in ot:
+                            state["sl_order_id"] = o["id"]
+                            logger.info("[%s] SL 복원: %s", symbol, o["id"])
+                except Exception as e:
+                    logger.warning("[%s] 열린 주문 복원 실패: %s", symbol, e)
         except Exception as e:
             logger.error("[%s] 상태 복원 오류: %s", symbol, e)
 
