@@ -192,14 +192,15 @@ async def test_handle_symbol_flow_C_closed(exchange, shared_state):
     exchange.fetch_positions = AsyncMock(return_value=[])
 
     with patch.object(strategy, "_cancel_safe", new_callable=AsyncMock) as mock_cancel, \
+         patch.object(strategy, "_cancel_sl_safe", new_callable=AsyncMock) as mock_cancel_sl, \
          patch("bot.journal.close_trade") as mock_close, \
          patch("bot.report.send_close_alert", new_callable=AsyncMock) as mock_alert:
         await strategy._handle_symbol(exchange, SYMBOL, shared_state)
 
-    assert mock_cancel.call_count == 2
-    cancelled_ids = {c[0][1] for c in mock_cancel.call_args_list}
-    assert "tp1" in cancelled_ids
-    assert "sl1" in cancelled_ids
+    mock_cancel.assert_called_once()
+    assert mock_cancel.call_args[0][1] == "tp1"
+    mock_cancel_sl.assert_called_once()
+    assert mock_cancel_sl.call_args[0][1] == "sl1"
 
     mock_close.assert_called_once()
     mock_alert.assert_called_once()
@@ -222,6 +223,7 @@ async def test_handle_symbol_flow_C_timeout(exchange, shared_state):
     exchange.create_order = AsyncMock(return_value={"id": "close1", "average": 50000.0, "price": 50000.0})
 
     with patch.object(strategy, "_cancel_safe", new_callable=AsyncMock), \
+         patch.object(strategy, "_cancel_sl_safe", new_callable=AsyncMock), \
          patch("bot.journal.close_trade"), \
          patch("bot.report.send_close_alert", new_callable=AsyncMock):
         await strategy._handle_symbol(exchange, SYMBOL, shared_state)

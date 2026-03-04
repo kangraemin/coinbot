@@ -140,6 +140,16 @@ async def _cancel_safe(exchange, order_id: str, symbol: str) -> None:
         pass
 
 
+async def _cancel_sl_safe(exchange, algo_id: str, symbol: str) -> None:
+    """알고(조건부) SL 주문 취소 — fapiPrivateDeleteAlgoOrder 사용."""
+    try:
+        market_id = exchange.market_id(symbol)
+        await exchange.fapiPrivateDeleteAlgoOrder({"algoId": algo_id, "symbol": market_id})
+        logger.debug("[%s] SL 알고 주문 취소: %s", symbol, algo_id)
+    except Exception:
+        pass
+
+
 async def _place_entry(
     exchange, symbol: str, direction: str, ind: dict
 ) -> tuple[str, float, float] | None:
@@ -208,19 +218,14 @@ async def _place_tp_sl(
         logger.error("[%s] TP 주문 실패: %s", symbol, e)
 
     try:
-        # STOP_MARKET 대신 STOP(스탑리밋) 사용 — Binance -4120 회피
-        # limit price: 숏 buy-stop → sl_price*1.01, 롱 sell-stop → sl_price*0.99
-        sl_limit_raw = sl_price * (1.01 if sl_side == "buy" else 0.99)
-        try:
-            sl_limit = float(exchange.price_to_precision(symbol, sl_limit_raw))
-        except Exception:
-            sl_limit = round(sl_limit_raw, 4)
+        # STOP_MARKET + closePosition=True → Binance 알고(조건부) 주문으로 생성
+        # ccxt >= 4.5.0 필요, cancel 시 _cancel_sl_safe 사용
         sl_order = await exchange.create_order(
-            symbol, "STOP", sl_side, amount, sl_limit,
-            {"stopPrice": sl_price, "reduceOnly": True, "timeInForce": "GTC"},
+            symbol, "STOP_MARKET", sl_side, 0, None,
+            {"stopPrice": sl_price, "closePosition": True},
         )
         sl_id = sl_order["id"]
-        logger.info("[%s] SL 주문 — trigger %.4f / limit %.4f", symbol, sl_price, sl_limit)
+        logger.info("[%s] SL 주문 (알고) — @ %.4f", symbol, sl_price)
     except Exception as e:
         logger.error("[%s] SL 주문 실패: %s", symbol, e)
 
@@ -272,9 +277,10 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
             state["entry_time"] + timedelta(hours=cfg.SIGNAL_TIMEOUT_HOURS)
         ):
             logger.info("[%s] 포지션 타임아웃 — 시장가 강제청산", symbol)
-            for oid in (state["tp_order_id"], state["sl_order_id"]):
-                if oid:
-                    await _cancel_safe(exchange, oid, symbol)
+            if state["tp_order_id"]:
+                await _cancel_safe(exchange, state["tp_order_id"], symbol)
+            if state["sl_order_id"]:
+                await _cancel_sl_safe(exchange, state["sl_order_id"], symbol)
             side = "sell" if state["direction"] == "long" else "buy"
             try:
                 order = await exchange.create_order(
@@ -295,9 +301,10 @@ async def _handle_symbol(exchange, symbol: str, shared_state: dict) -> None:
                 None,
             )
             if open_pos is None:
-                for oid in (state["tp_order_id"], state["sl_order_id"]):
-                    if oid:
-                        await _cancel_safe(exchange, oid, symbol)
+                if state["tp_order_id"]:
+                    await _cancel_safe(exchange, state["tp_order_id"], symbol)
+                if state["sl_order_id"]:
+                    await _cancel_sl_safe(exchange, state["sl_order_id"], symbol)
                 last_price = sym.get("last_price", state["entry_price"])
                 await _close_position(exchange, symbol, last_price, "tp_sl")
         except Exception as e:
@@ -389,9 +396,21 @@ async def _restore_state(exchange) -> None:
                         if ot == "LIMIT":
                             state["tp_order_id"] = o["id"]
                             logger.info("[%s] TP 복원: %s", symbol, o["id"])
-                        elif "STOP" in ot:
-                            state["sl_order_id"] = o["id"]
-                            logger.info("[%s] SL 복원: %s", symbol, o["id"])
+
+                    # SL은 알고(조건부) 주문 — 별도 엔드포인트 조회
+                    try:
+                        market_id  = exchange.market_id(symbol)
+                        algo_resp  = await exchange.fapiPrivateGetOpenAlgoOrders({"symbol": market_id})
+                        algo_list  = algo_resp if isinstance(algo_resp, list) else algo_resp.get("orders", [])
+                        for o in algo_list:
+                            ot = (o.get("orderType") or o.get("type") or "").upper()
+                            if "STOP" in ot:
+                                algo_id = str(o.get("algoId") or o.get("orderId") or o.get("id") or "")
+                                if algo_id:
+                                    state["sl_order_id"] = algo_id
+                                    logger.info("[%s] SL 복원 (알고): %s", symbol, algo_id)
+                    except Exception as e:
+                        logger.warning("[%s] 알고 SL 조회 실패: %s", symbol, e)
 
                     # SL 누락 시 TP 가격으로 ATR 역산 → SL 재등록
                     if state["tp_order_id"] and not state["sl_order_id"]:
@@ -399,10 +418,10 @@ async def _restore_state(exchange) -> None:
                             (o for o in open_orders if o["id"] == state["tp_order_id"]), None
                         )
                         if tp_order:
-                            p         = cfg.SYMBOL_STRATEGY.get(symbol, {})
-                            tp_price  = float(tp_order.get("price") or 0)
-                            atr       = abs(tp_price - state["entry_price"]) / p["tp_mult"]
-                            sl_raw    = (
+                            p        = cfg.SYMBOL_STRATEGY.get(symbol, {})
+                            tp_price = float(tp_order.get("price") or 0)
+                            atr      = abs(tp_price - state["entry_price"]) / p["tp_mult"]
+                            sl_raw   = (
                                 state["entry_price"] - atr * p["sl_mult"]
                                 if direction == "long"
                                 else state["entry_price"] + atr * p["sl_mult"]
@@ -413,17 +432,12 @@ async def _restore_state(exchange) -> None:
                                 sl_price = round(sl_raw, 4)
                             sl_side = "sell" if direction == "long" else "buy"
                             try:
-                                sl_limit_raw = sl_price * (1.01 if sl_side == "buy" else 0.99)
-                                try:
-                                    sl_limit = float(exchange.price_to_precision(symbol, sl_limit_raw))
-                                except Exception:
-                                    sl_limit = round(sl_limit_raw, 4)
                                 sl_order = await exchange.create_order(
-                                    symbol, "STOP", sl_side, state["amount"], sl_limit,
-                                    {"stopPrice": sl_price, "reduceOnly": True, "timeInForce": "GTC"},
+                                    symbol, "STOP_MARKET", sl_side, 0, None,
+                                    {"stopPrice": sl_price, "closePosition": True},
                                 )
                                 state["sl_order_id"] = sl_order["id"]
-                                logger.info("[%s] SL 재등록 완료 — trigger %.4f / limit %.4f", symbol, sl_price, sl_limit)
+                                logger.info("[%s] SL 재등록 완료 (알고) — @ %.4f", symbol, sl_price)
                             except Exception as e:
                                 logger.error("[%s] SL 재등록 실패: %s", symbol, e)
                         else:
