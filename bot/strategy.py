@@ -359,9 +359,14 @@ async def _restore_state(exchange) -> None:
             )
             if open_pos:
                 contracts = float(open_pos.get("contracts") or 0)
+                side_str  = (open_pos.get("side") or "").lower()
+                if side_str in ("long", "short"):
+                    direction = side_str
+                else:
+                    direction = "long" if contracts > 0 else "short"
                 state.update({
                     "has_position": True,
-                    "direction":    "long" if contracts > 0 else "short",
+                    "direction":    direction,
                     "entry_price":  float(open_pos.get("entryPrice") or 0),
                     "amount":       abs(contracts),
                     "entry_time":   datetime.now(timezone.utc),  # 정확한 진입 시각 불명
@@ -380,6 +385,40 @@ async def _restore_state(exchange) -> None:
                         elif "STOP" in ot:
                             state["sl_order_id"] = o["id"]
                             logger.info("[%s] SL 복원: %s", symbol, o["id"])
+
+                    # SL 누락 시 TP 가격으로 ATR 역산 → SL 재등록
+                    if state["tp_order_id"] and not state["sl_order_id"]:
+                        tp_order = next(
+                            (o for o in open_orders if o["id"] == state["tp_order_id"]), None
+                        )
+                        if tp_order:
+                            p         = cfg.SYMBOL_STRATEGY.get(symbol, {})
+                            tp_price  = float(tp_order.get("price") or 0)
+                            atr       = abs(tp_price - state["entry_price"]) / p["tp_mult"]
+                            sl_raw    = (
+                                state["entry_price"] - atr * p["sl_mult"]
+                                if direction == "long"
+                                else state["entry_price"] + atr * p["sl_mult"]
+                            )
+                            try:
+                                sl_price = float(exchange.price_to_precision(symbol, sl_raw))
+                            except Exception:
+                                sl_price = round(sl_raw, 4)
+                            sl_side = "sell" if direction == "long" else "buy"
+                            try:
+                                sl_order = await exchange.create_order(
+                                    symbol, "STOP_MARKET", sl_side, 0, None,
+                                    {"stopPrice": sl_price, "closePosition": True},
+                                )
+                                state["sl_order_id"] = sl_order["id"]
+                                logger.info("[%s] SL 재등록 완료 — @ %.4f", symbol, sl_price)
+                            except Exception as e:
+                                logger.error("[%s] SL 재등록 실패: %s", symbol, e)
+                        else:
+                            logger.warning("[%s] SL 없음 + TP 주문 조회 실패 — SL 재등록 불가", symbol)
+                    elif not state["sl_order_id"]:
+                        logger.warning("[%s] SL 없음 + TP도 없음 — 포지션 수동 확인 필요", symbol)
+
                 except Exception as e:
                     logger.warning("[%s] 열린 주문 복원 실패: %s", symbol, e)
         except Exception as e:
