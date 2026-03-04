@@ -130,6 +130,20 @@ async def send_close_alert(
     await send_telegram(msg)
 
 
+async def send_capital_alert(balance: float, target: float) -> None:
+    """원금 2배 달성 출금 권고 알림."""
+    msg = (
+        f"🎉 *coinbot 원금 2배 달성!*\n"
+        f"현재 잔액: {balance:,.2f} USDT\n"
+        f"목표 달성: {target:,.2f} USDT\n\n"
+        f"💡 *원금 출금 권고*\n"
+        f"바이낸스에서 원금(1,300 USDT)을 출금하고\n"
+        f"수익분만 봇에 남겨두세요.\n"
+        f"→ 이후 수익분만 복리 운용"
+    )
+    await send_telegram(msg)
+
+
 async def send_daily_report(trades: list[dict], balance: float = 0.0) -> None:
     """일일 요약 리포트를 발송한다."""
     if not trades:

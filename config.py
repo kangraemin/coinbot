@@ -31,6 +31,7 @@ TIMEFRAME: str = "4h"
 LEVERAGE: int = 3
 MARGIN_TYPE: str = "isolated"
 POSITION_RATIO: float = 0.30   # 코인당 자본 비율 (30%) — 백테스트 기준값
+INITIAL_CAPITAL: float = 1300.0  # 원금 — 2배 달성 시 출금 알림
 
 # ── 4H BB+RSI 양방향 전략 파라미터 ───────────────────
 # 백테스트 근거 (2022~2025): BTC +157.2%, ETH +157.8%, XRP +133.6%

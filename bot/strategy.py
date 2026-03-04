@@ -457,6 +457,8 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
     await asyncio.sleep(5)
     await _restore_state(exchange)
 
+    _capital_alert_sent = False  # 원금 2배 알림 중복 방지
+
     while True:
         try:
             if not shared_state.get("trading_halted", False):
@@ -464,6 +466,17 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                     await _handle_symbol(exchange, symbol, shared_state)
             else:
                 logger.debug("거래 중단 상태 — 전략 루프 대기")
+
+            # 원금 2배 달성 체크 (포지션 없을 때만)
+            if not _capital_alert_sent and cfg.INITIAL_CAPITAL > 0:
+                any_position = any(_pos[s]["has_position"] for s in cfg.SYMBOLS)
+                if not any_position:
+                    target = cfg.INITIAL_CAPITAL * 2
+                    balance = await _get_total_balance(exchange)
+                    if balance >= target:
+                        logger.info("원금 2배 달성 — 출금 권고 알림 발송 (잔액 %.2f)", balance)
+                        await report.send_capital_alert(balance, target)
+                        _capital_alert_sent = True
         except asyncio.CancelledError:
             raise
         except Exception as e:
