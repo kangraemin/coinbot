@@ -208,12 +208,19 @@ async def _place_tp_sl(
         logger.error("[%s] TP 주문 실패: %s", symbol, e)
 
     try:
+        # STOP_MARKET 대신 STOP(스탑리밋) 사용 — Binance -4120 회피
+        # limit price: 숏 buy-stop → sl_price*1.01, 롱 sell-stop → sl_price*0.99
+        sl_limit_raw = sl_price * (1.01 if sl_side == "buy" else 0.99)
+        try:
+            sl_limit = float(exchange.price_to_precision(symbol, sl_limit_raw))
+        except Exception:
+            sl_limit = round(sl_limit_raw, 4)
         sl_order = await exchange.create_order(
-            symbol, "STOP_MARKET", sl_side, 0, None,
-            {"stopPrice": sl_price, "closePosition": True},
+            symbol, "STOP", sl_side, amount, sl_limit,
+            {"stopPrice": sl_price, "reduceOnly": True, "timeInForce": "GTC"},
         )
         sl_id = sl_order["id"]
-        logger.info("[%s] SL 주문 — @ %.4f", symbol, sl_price)
+        logger.info("[%s] SL 주문 — trigger %.4f / limit %.4f", symbol, sl_price, sl_limit)
     except Exception as e:
         logger.error("[%s] SL 주문 실패: %s", symbol, e)
 
@@ -406,12 +413,17 @@ async def _restore_state(exchange) -> None:
                                 sl_price = round(sl_raw, 4)
                             sl_side = "sell" if direction == "long" else "buy"
                             try:
+                                sl_limit_raw = sl_price * (1.01 if sl_side == "buy" else 0.99)
+                                try:
+                                    sl_limit = float(exchange.price_to_precision(symbol, sl_limit_raw))
+                                except Exception:
+                                    sl_limit = round(sl_limit_raw, 4)
                                 sl_order = await exchange.create_order(
-                                    symbol, "STOP_MARKET", sl_side, 0, None,
-                                    {"stopPrice": sl_price, "closePosition": True},
+                                    symbol, "STOP", sl_side, state["amount"], sl_limit,
+                                    {"stopPrice": sl_price, "reduceOnly": True, "timeInForce": "GTC"},
                                 )
                                 state["sl_order_id"] = sl_order["id"]
-                                logger.info("[%s] SL 재등록 완료 — @ %.4f", symbol, sl_price)
+                                logger.info("[%s] SL 재등록 완료 — trigger %.4f / limit %.4f", symbol, sl_price, sl_limit)
                             except Exception as e:
                                 logger.error("[%s] SL 재등록 실패: %s", symbol, e)
                         else:
