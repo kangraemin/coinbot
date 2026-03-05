@@ -10,3 +10,6 @@ data/market/
 .idea/
 .DS_Store
 data/.DS_Store
+HANDOFF.md
+.claude/
+analysis/
