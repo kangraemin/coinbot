@@ -172,7 +172,7 @@ coinbot/
 **Requirements**: Python 3.10+, Binance Futures account with API access.
 
 ```bash
-git clone https://github.com/yourusername/coinbot
+git clone https://github.com/kangraemin/coinbot
 cd coinbot
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
