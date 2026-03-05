@@ -1,195 +1,165 @@
 # coinbot
 
-Binance USDM 선물 자동매매 봇 — **4H BB+RSI 양방향 평균회귀 전략**
+> Binance USDM Futures algorithmic trading bot — 4H BB+RSI dual-direction mean-reversion strategy.
 
-BTC / ETH / XRP 동시 운영 | 3x 레버리지 | Oracle Cloud 24/7
-
----
-
-## 현행 전략 (2026-03 기준)
-
-### 진입 조건
-
-```
-롱: close < BB_lower(20, 2σ)  AND  RSI(14) < rsi_long   AND  close > EMA(200)
-숏: close > BB_upper(20, 2σ)  AND  RSI(14) > rsi_short  AND  close < EMA(200)
-```
-
-- **EMA200 필터**: 추세 방향에 역행하는 진입 차단
-  - 불장(close > EMA200): 롱만 허용
-  - 약세(close < EMA200): 숏만 허용
-- **타임프레임**: 4시간봉 (4H)
-- **진입**: 시장가 즉시 체결
-
-### 청산 조건
-
-```
-TP: 진입가 ± ATR(14) × tp_mult  → 리밋 주문 (reduceOnly)
-SL: 진입가 ± ATR(14) × sl_mult  → STOP_MARKET (reduceOnly)
-타임아웃: 192시간(48봉) 경과 시 시장가 강제청산
-```
-
-### 코인별 파라미터
-
-| 코인 | RSI_롱 | RSI_숏 | SL 배수 | TP 배수 | 레버리지 | 포지션 비율 |
-|------|--------|--------|---------|---------|---------|-----------|
-| BTC  | < 30   | > 65   | × 2.0   | × 3.0   | 3x      | 70%       |
-| ETH  | < 25   | > 65   | × 2.0   | × 2.0   | 3x      | 70%       |
-| XRP  | < 25   | > 65   | × 2.0   | × 3.0   | 3x      | 70%       |
-
-> 백테스트 근거: 4H 데이터 2022~2025 그리드 서치 기반 코인별 최적화
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Exchange](https://img.shields.io/badge/Exchange-Binance%20Futures-F0B90B)](https://binance.com)
+[![Strategy](https://img.shields.io/badge/Strategy-BB%2BRSI%204H-22c55e)](.)
+[![Live](https://img.shields.io/badge/Status-Live%20on%20Oracle%20Cloud-brightgreen)](.)
+[![Tests](https://img.shields.io/badge/Tests-pytest-blue)](.)
 
 ---
 
-## 백테스트 결과 요약
+## Strategy
 
-### 현행 BB+RSI (2022~2025, 4H)
+**4H Bollinger Band + RSI mean-reversion — both long and short.**
 
-| 코인 | 수익률 | MDD | Calmar | 거래수 | 승률 |
-|------|--------|-----|--------|--------|------|
-| BTC  | +157%  | 40% | 3.93   | 40건   | 50%  |
-| ETH  | +158%  | 27% | 5.85   | 37건   | 57%  |
-| XRP  | +134%  | 27% | 4.96   | 34건   | 50%  |
+The final strategy is the result of systematically evaluating 37 different approaches across 9 years of data (2017–2026) before arriving at this configuration.
 
-- 거래 빈도: 3코인 합산 약 **22건/년 (1.8건/월)**
-- 90%+ 숏 포지션 (약세장에서 주로 활성)
+| Signal | Condition |
+|--------|-----------|
+| **Long** | `close < BB_lower(20, 2σ)` AND `RSI(14) < threshold` AND `close > EMA(200)` |
+| **Short** | `close > BB_upper(20, 2σ)` AND `RSI(14) > threshold` AND `close < EMA(200)` |
+| **Take Profit** | `entry ± ATR(14) × tp_mult` via limit order |
+| **Stop Loss** | `entry ∓ ATR(14) × sl_mult` via `STOP_MARKET` (Binance algo order) |
+| **Timeout** | Force-close after 192h (48 × 4H bars) |
 
-### 전체 기간 (2017~2026, 4H)
+### Confirmed Parameters (2022–2026 backtest)
 
-| 코인 | 수익률 | MDD | B&H |
-|------|--------|-----|-----|
-| BTC  | +112%  | 74% | +1,419% |
-| ETH  | +77%   | 56% | +539%   |
-| XRP  | +94%   | 59% | +49%    |
+| Symbol | RSI Long | RSI Short | SL | TP | Leverage | Return | MDD | Calmar |
+|--------|----------|-----------|----|----|----------|--------|-----|--------|
+| BTC/USDT | < 30 | > 65 | 2.0× ATR | 3.0× ATR | 3x | +157.2% | 40% | 3.93 |
+| ETH/USDT | < 25 | > 65 | 2.0× ATR | 2.0× ATR | 3x | +157.8% | 27% | 5.85 |
+| XRP/USDT | < 25 | > 65 | 2.0× ATR | 3.0× ATR | 3x | +133.6% | 27% | 4.96 |
 
----
-
-## 레짐 스위칭 전략 분석 (2026-03)
-
-> 불장에서 BB+RSI가 비활성화되는 문제를 해결하기 위한 대안 전략 백테스트
-
-### 스위칭 전략 개요
-
-```
-불장 (close > EMA200): EMA50 크로스오버 추세추종 롱
-  - close가 EMA50 위로 크로스 → 롱 진입
-  - close가 EMA50 아래로 이탈 → 청산
-
-약세 (close < EMA200): BB+RSI 숏 전용 (현행과 동일)
-```
-
-### 전체 기간 비교 (2017~2026)
-
-| 코인 | 현행 BB+RSI | 스위칭 | B&H | 비고 |
-|------|------------|--------|-----|------|
-| BTC  | +112%      | **+25,620%** | +1,419% | ✅ 스위칭 압도적 |
-| ETH  | +77%       | **+37,435%** | +539%   | ✅ 스위칭 압도적 |
-| XRP  | **+94%**   | -65%   | +49%    | ❌ 스위칭 부적합 |
-
-### 장세별 성과 (전 코인 평균)
-
-| 장세 (B&H 기준) | 현행 BB+RSI | 스위칭 | B&H |
-|----------------|------------|--------|-----|
-| 상승장 (> +30%) | +53%        | +140%  | +191% |
-| 하락장 (< -20%) | **-18%**    | -18%   | -54%  |
-| 횡보장           | +33%        | **+110%** | -4% |
-
-### 최근 5개월 월별 비교 (2025-10 ~ 2026-02, 현재 하락장)
-
-#### BTC
-| 월 | 현행 | 스위칭 | B&H |
-|----|------|--------|-----|
-| 2025-10 | **+9.3%** | +2.5% | -4% |
-| 2025-11 | **+8.0%** | +8.0% | -18% |
-| 2025-12 | **+16.5%** | +16.5% | +2% |
-| 2026-01 | **+0.0%** | -0.7% | -10% |
-| 2026-02 | **+11.1%** | +11.1% | -15% |
-
-#### ETH
-| 월 | 현행 | 스위칭 | B&H |
-|----|------|--------|-----|
-| 2025-10 | **-6.6%** | -10.5% | -7% |
-| 2025-11 | **+9.2%** | +9.2% | -23% |
-| 2025-12 | **+4.6%** | +4.6% | +5% |
-| 2026-01 | 0.0% | **+2.8%** | -18% |
-| 2026-02 | **-0.1%** | -0.1% | -20% |
-
-#### XRP
-| 월 | 현행 | 스위칭 | B&H |
-|----|------|--------|-----|
-| 2025-10 | **+5.7%** | +1.1% | -11% |
-| 2025-11 | **+15.8%** | +15.8% | -14% |
-| 2025-12 | **0.0%** | 0.0% | -10% |
-| 2026-01 | **0.0%** | -9.0% | -10% |
-| 2026-02 | **+7.2%** | +7.2% | -17% |
-
-### 결론 및 향후 계획
-
-| 상황 | 채택 전략 |
-|------|----------|
-| 현재 (하락장) | **현행 BB+RSI 유지** |
-| 불장 전환 시 (BTC EMA200 돌파 + 유지) | BTC/ETH → 스위칭 전환 검토 |
-| XRP | **항상 현행 BB+RSI** (스위칭 9년 -65%) |
-
-**스위칭 전환 시그널**: BTC가 EMA200 위로 올라서고 2~3주 유지될 때
+- **Position size**: 30% of available balance per coin (3 simultaneous max)
+- **EMA200**: strict trend filter — long only above EMA200, short only below
 
 ---
 
-## 아키텍처
+## Research
+
+The parameters above weren't guessed. Here's what it took to find them.
+
+### Strategies Evaluated
+
+37 backtest scripts. Every approach was implemented, run, and measured before being accepted or rejected.
+
+| Category | What Was Tested |
+|----------|----------------|
+| **Mean reversion** | BB+RSI (v1, v2, dual-direction), volume filters, robustness validation |
+| **Trend following** | EMA200 crossover, MACD 1D, Golden Cross (multiple variants) |
+| **Regime switching** | Per-coin EMA200 regime, BTC-global regime for all coins |
+| **Signal quality** | Dual-tier (4H high-quality + 1H medium-quality), adaptive thresholds |
+| **Portfolio** | Multi-coin correlation, dynamic vs fixed capital, asset rotation |
+| **Timeframe** | 1H / 2H / 4H / 1D full comparison; 1m/3m/5m/15m intraday grid |
+| **Validation** | Walk-forward analysis, year-by-year consistency, out-of-sample testing |
+
+### Grid Search
+
+- **5,000+ parameter combinations** tested across BTC, ETH, XRP, SOL
+- **Grid axes**: RSI threshold × SL multiplier × TP multiplier × leverage × position ratio × EMA200 on/off
+- **164 result files** generated (CSV + markdown summaries)
+- **9 years of data**: 2017–2026, 1H candles resampled to target timeframes
+
+### Key Findings
+
+**Timeframe: 4H is definitively better**
+
+Every coin, every metric. The gap widens as you go shorter.
+
+| Timeframe | XRP return | ETH return | Noise level |
+|-----------|-----------|-----------|-------------|
+| 1H | +122.6% | +5.8% | High |
+| 4H | **+407.9%** | **+85.5%** | Low |
+
+**EMA200 filter is non-negotiable**
+
+Removing it breaks the strategy entirely.
+
+| Coin | With EMA200 | Without EMA200 |
+|------|-------------|----------------|
+| ETH | positive | **−45.6%** |
+| SOL | positive | **−63.9%** |
+
+**Dual-tier signal (4H + 1H) tested and rejected**
+
+The intuition was sound: use 4H for big positions, 1H for smaller ones.
+In practice, XRP 1H signals showed only **25% win rate** — adding them hurt more than helped regardless of position size. 4H standalone wins.
+
+**Regime switching: promising but not yet live**
+
+BTC/ETH switching to EMA50 trend-following in bull markets showed +25,000%+ on 9-year backtests. Not deployed because:
+1. The bull market gains are concentrated in specific windows (high overfitting risk)
+2. XRP regime switching loses −65% over 9 years — per-coin behavior diverges too much
+3. Walk-forward validation pending before live deployment
+
+**Walk-forward validation**
+
+Strategy parameters were validated on rolling out-of-sample windows. Results are consistent across years — not a backtest artifact from a single lucky period.
+
+---
+
+## Architecture
 
 ```
 main.py
- ├── data_loop(symbol × 3)     # WebSocket 4H봉 실시간 수신
- ├── strategy_loop             # 30초마다 3코인 순회
+ ├── data_loop (× 3 symbols)    # WebSocket 4H candle feed
+ ├── strategy_loop              # 30s tick — evaluates all symbols
  │    └── _handle_symbol()
- │         ├── Phase A: 신호 확인 + 시장가 진입
- │         └── Phase C: TP/SL 체결 확인 / 타임아웃 강제청산
- ├── risk_loop                 # 일일 손실 한도 (-5%) 감시
- ├── daily_report_loop         # 매일 오전 7시(KST) Telegram 리포트
- └── heartbeat_loop            # 1시간마다 봇 상태 알림
+ │         ├── Phase A: compute indicators → check signal → market entry
+ │         └── Phase C: monitor TP/SL fill → timeout force-close
+ ├── risk_loop                  # daily loss limit (−5%)
+ ├── daily_report_loop          # 07:00 KST Telegram summary
+ └── heartbeat_loop             # 1h status ping
 ```
 
-### 주문 흐름
+### Order Flow
 
 ```
-4H봉 마감 (확정봉 기준)
+4H candle closes (confirmed bar only — no repainting)
     ↓
-BB / RSI / ATR / EMA200 계산
+Compute: BB(20,2σ) / RSI(14) / ATR(14) / EMA(200)
     ↓
-진입 조건 충족?
-    ↓ Yes
-시장가 진입 (즉시 체결)
+Signal? long / short / none
+    ↓ signal
+Market order → immediate fill
     ↓
-TP: 리밋 주문 (reduceOnly)
-SL: STOP_MARKET (reduceOnly)
+TP  → limit order (reduceOnly)
+SL  → STOP_MARKET closePosition=True  ← Binance algo order
     ↓
-체결 or 타임아웃(192h)
+Fill detected or 192h timeout
     ↓
-포지션 종료 → journal 기록 + Telegram 알림
+Close → SQLite journal + Telegram alert
 ```
+
+**Restart recovery**: On bot restart, open positions and algo SL orders are restored via `fapiPrivateGetOpenAlgoOrders`. If SL is missing, it's re-registered using ATR back-calculated from entry price.
 
 ---
 
-## 프로젝트 구조
+## Project Structure
 
 ```
 coinbot/
-├── main.py               # 진입점 — asyncio, WebSocket
-├── config.py             # 전체 파라미터
+├── main.py                 # entrypoint — asyncio event loop
+├── config.py               # all strategy parameters in one place
 ├── bot/
-│   ├── strategy.py       # 4H BB+RSI 전략 (진입/TP/SL/포지션 관리)
-│   ├── exchange.py       # Binance USDM ccxt.pro 연결
-│   ├── risk.py           # 일일 손실 한도 감시
-│   ├── journal.py        # SQLite 매매 일지 (data/trades.db)
-│   └── report.py         # Telegram 알림
-├── backtest/
-│   ├── backtest_4h_bbrsi.py        # 4H BB+RSI 그리드 서치
-│   ├── backtest_switch.py          # 레짐 스위칭 전략 (코인별 EMA200)
-│   └── backtest_switch_btcregime.py # 레짐 스위칭 (BTC EMA200 글로벌)
+│   ├── strategy.py         # signal detection, order execution, state management
+│   ├── exchange.py         # Binance USDM futures via ccxt.pro WebSocket
+│   ├── risk.py             # daily loss limit watchdog
+│   ├── journal.py          # SQLite trade log (data/trades.db)
+│   └── report.py           # Telegram notifications
+├── backtest/               # 37 research scripts
+│   ├── backtest_fullperiod_grid.py     # 2017–2026 full-period grid search
+│   ├── backtest_bb_rsi_v2.py          # 4H BB+RSI core strategy
+│   ├── backtest_switch_btcregime.py   # BTC-global regime switching
+│   ├── backtest_dual_tier.py          # 4H+1H signal quality tiering
+│   ├── backtest_wf_all.py             # walk-forward validation
+│   └── ...
 ├── data/
-│   ├── market/           # {coin}_1h_full.parquet (서버 직접 관리)
-│   ├── trades.db         # 매매 일지 SQLite
-│   └── results/          # 백테스트 결과 CSV / MD
+│   ├── market/             # parquet candle data (2017–2026, not tracked)
+│   ├── trades.db           # live trade history (not tracked)
+│   └── results/            # 164 backtest output files
 └── tests/
     ├── conftest.py
     └── test_strategy.py
@@ -197,59 +167,45 @@ coinbot/
 
 ---
 
-## 설치 및 실행
+## Setup
+
+**Requirements**: Python 3.10+, Binance Futures account with API access.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/yourusername/coinbot
+cd coinbot
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# .env에 API 키 및 Telegram 토큰 입력
-
+# fill in your credentials
 python main.py
 ```
 
 ```env
+# .env.example
 TESTNET=false
-REAL_API_KEY=your_api_key
-REAL_API_SECRET=your_api_secret
-TELEGRAM_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+REAL_API_KEY=
+REAL_API_SECRET=
+TELEGRAM_TOKEN=
+TELEGRAM_CHAT_ID=
 ```
-
----
-
-## 배포 (Oracle Cloud, 158.179.166.232)
 
 ```bash
-# /deploy 스킬 사용
-# 1. 로컬 테스트 → 2. rsync → 3. 서버 테스트 → 4. 서비스 재시작
-
-ssh ubuntu@158.179.166.232 "sudo journalctl -u coinbot -f"
+# run tests
+pytest tests/ -v
 ```
 
 ---
 
-## 리스크 관리
+## Risk
 
-| 항목 | 설정 |
-|------|------|
-| 일일 최대 손실 | -5% (초과 시 신규 진입 중단) |
-| 코인당 포지션 비율 | 70% × 3x = 실질 2.1x |
-| 최대 동시 포지션 | 3개 (코인당 1개) |
-| 포지션 타임아웃 | 192시간 (48봉) |
-| 재시작 시 복원 | 기존 포지션 자동 감지 |
+| Control | Setting |
+|---------|---------|
+| Daily loss limit | −5% (halts new entries) |
+| Position size | 30% balance per coin |
+| Max simultaneous | 3 positions |
+| Timeout | 192h forced close |
+| Leverage | 3x isolated |
 
----
-
-## 주의사항
-
-1. **승률 48~59%**: BB+RSI 특성상 손절도 빈번 — 장기 운용 전제
-2. **하락장 최적화**: 불장에서는 EMA200 필터로 롱 신호가 줄어 거래 감소
-3. **레버리지 위험**: 3x 운용 시 -33% 하락으로 원금 전액 손실 가능
-4. **백테스트 ≠ 실전**: 슬리피지, 호가 스프레드 미반영
-
----
-
-*Private*
+**Disclaimer**: Futures trading with leverage carries significant risk of total loss. This is personal research code, not financial advice.
