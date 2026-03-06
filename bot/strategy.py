@@ -483,12 +483,27 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                 if _last_report_ts[symbol] == ind["timestamp"]:
                     continue
                 state = _pos[symbol]
+                p = cfg.SYMBOL_STRATEGY.get(symbol, {})
+                # TP/SL 가격 역산 (진입가 + ATR × mult)
+                tp_price = sl_price = None
+                if state["has_position"] and state["atr_at_entry"] > 0:
+                    atr_e = state["atr_at_entry"]
+                    if state["direction"] == "long":
+                        tp_price = state["entry_price"] + atr_e * p.get("tp_mult", 3.0)
+                        sl_price = state["entry_price"] - atr_e * p.get("sl_mult", 2.0)
+                    else:
+                        tp_price = state["entry_price"] - atr_e * p.get("tp_mult", 3.0)
+                        sl_price = state["entry_price"] + atr_e * p.get("sl_mult", 2.0)
                 candle_statuses.append({
                     "symbol": symbol,
                     **ind,
                     "has_position": state["has_position"],
                     "direction": state["direction"],
                     "entry_price": state["entry_price"],
+                    "tp_price": tp_price,
+                    "sl_price": sl_price,
+                    "entry_time": state.get("entry_time"),
+                    "strategy": p,
                 })
                 _last_report_ts[symbol] = ind["timestamp"]
             if candle_statuses:

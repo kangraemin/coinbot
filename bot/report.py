@@ -161,7 +161,19 @@ async def send_candle_status(statuses: list[dict]) -> None:
         # 포지션 상태
         if s.get("has_position") and s.get("direction"):
             arrow = "📈" if s["direction"] == "long" else "📉"
-            pos_str = f"{arrow} 포지션: {s['direction'].upper()} @ {s['entry_price']:,.4f}"
+            pos_lines = [f"{arrow} 포지션: {s['direction'].upper()} @ {s['entry_price']:,.4f}"]
+            if s.get("tp_price"):
+                pos_lines.append(f"  익절(TP): {s['tp_price']:,.4f}")
+            if s.get("sl_price"):
+                pos_lines.append(f"  손절(SL): {s['sl_price']:,.4f}")
+            if s.get("entry_time"):
+                from datetime import datetime, timezone, timedelta
+                elapsed = datetime.now(timezone.utc) - s["entry_time"]
+                elapsed_h = elapsed.total_seconds() / 3600
+                timeout_h = 192  # SIGNAL_TIMEOUT_HOURS
+                remain_h = max(0, timeout_h - elapsed_h)
+                pos_lines.append(f"  경과: {elapsed_h:.0f}h / 타임아웃: {remain_h:.0f}h 남음")
+            pos_str = "\n".join(pos_lines)
         else:
             pos_str = "⏳ 포지션: 대기 중"
 
@@ -200,6 +212,18 @@ async def send_candle_status(statuses: list[dict]) -> None:
 
         comment_str = " / ".join(comments)
 
+        # 코인별 진입 조건
+        p = s.get("strategy", {})
+        rsi_long = p.get("rsi_long", "?")
+        rsi_short = p.get("rsi_short", "?")
+        sl_mult = p.get("sl_mult", "?")
+        tp_mult = p.get("tp_mult", "?")
+        cond_str = (
+            f"🟢 롱: 종가<BB하단 & RSI<{rsi_long} & 종가>EMA200\n"
+            f"🔴 숏: 종가>BB상단 & RSI>{rsi_short} & 종가<EMA200\n"
+            f"  TP: ATR×{tp_mult} / SL: ATR×{sl_mult}"
+        )
+
         lines.append(
             f"\n🔸 *{coin}*\n"
             f"종가: {close:,.4f}\n"
@@ -209,7 +233,8 @@ async def send_candle_status(statuses: list[dict]) -> None:
             f"BB 위치: {bb_pct:.0f}%\n"
             f"EMA200: {ema200:,.4f} ({ema_diff_pct:+.1f}%)\n"
             f"{pos_str}\n"
-            f"💬 {comment_str}"
+            f"💬 {comment_str}\n"
+            f"📋 진입 조건:\n{cond_str}"
         )
 
     # 용어 설명
