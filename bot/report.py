@@ -163,7 +163,7 @@ async def send_candle_status(statuses: list[dict]) -> None:
             arrow = "📈" if s["direction"] == "long" else "📉"
             pos_str = f"{arrow} 포지션: {s['direction'].upper()} @ {s['entry_price']:,.4f}"
         else:
-            pos_str = "⏳ 포지션: 없음"
+            pos_str = "⏳ 포지션: 대기 중"
 
         # BB 대비 위치 (%)
         bb_range = bb_upper - bb_lower
