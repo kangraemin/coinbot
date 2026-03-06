@@ -144,6 +144,36 @@ async def send_capital_alert(balance: float, target: float) -> None:
     await send_telegram(msg)
 
 
+async def send_candle_status(statuses: list[dict]) -> None:
+    """4H 봉 마감 인디케이터 상태 알림 (통합 메시지)."""
+    if not statuses:
+        return
+
+    lines = ["📊 *4H 봉 마감 상태*\n"]
+    for s in statuses:
+        coin = s["symbol"].split("/")[0]
+        close = s["close"]
+        rsi = s["rsi"]
+        bb_lower = s["bb_lower"]
+        bb_upper = s["bb_upper"]
+        ema200 = s["ema200"]
+
+        if s.get("has_position") and s.get("direction"):
+            arrow = "📈" if s["direction"] == "long" else "📉"
+            pos_str = f"{arrow} {s['direction'].upper()} @ {s['entry_price']:,.4f}"
+        else:
+            pos_str = "⏳ 대기 중"
+
+        lines.append(
+            f"*{coin}* | {close:,.4f} | RSI {rsi:.1f}\n"
+            f"BB [{bb_lower:,.4f} - {bb_upper:,.4f}] | EMA200 {ema200:,.4f}\n"
+            f"{pos_str}"
+        )
+
+    msg = "\n\n".join(lines)
+    await send_telegram(msg)
+
+
 async def send_daily_report(trades: list[dict], balance: float = 0.0) -> None:
     """일일 요약 리포트를 발송한다."""
     if not trades:

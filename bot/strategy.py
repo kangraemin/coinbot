@@ -22,6 +22,9 @@ from . import report
 
 logger = logging.getLogger(__name__)
 
+# ── 봉 마감 상태 알림 중복 방지 ───────────────────────────
+_last_report_ts: dict[str, int | None] = {symbol: None for symbol in cfg.SYMBOLS}
+
 # ── 심볼별 포지션 상태 ─────────────────────────────────
 _pos: dict[str, dict] = {
     symbol: {
@@ -466,6 +469,30 @@ async def strategy_loop(exchange, shared_state: dict) -> None:
                     await _handle_symbol(exchange, symbol, shared_state)
             else:
                 logger.debug("거래 중단 상태 — 전략 루프 대기")
+
+            # 4H 봉 마감 인디케이터 상태 알림
+            candle_statuses = []
+            for symbol in cfg.SYMBOLS:
+                sym = shared_state.get(symbol, {})
+                candles = sym.get("candles")
+                if not candles:
+                    continue
+                ind = _compute_indicators(candles)
+                if ind is None:
+                    continue
+                if _last_report_ts[symbol] == ind["timestamp"]:
+                    continue
+                state = _pos[symbol]
+                candle_statuses.append({
+                    "symbol": symbol,
+                    **ind,
+                    "has_position": state["has_position"],
+                    "direction": state["direction"],
+                    "entry_price": state["entry_price"],
+                })
+                _last_report_ts[symbol] = ind["timestamp"]
+            if candle_statuses:
+                await report.send_candle_status(candle_statuses)
 
             # 원금 2배 달성 체크 (포지션 없을 때만)
             if not _capital_alert_sent and cfg.INITIAL_CAPITAL > 0:
