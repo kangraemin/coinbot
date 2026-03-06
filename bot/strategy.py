@@ -241,16 +241,42 @@ async def _place_tp_sl(
 
 # ── 포지션 종료 공통 처리 ───────────────────────────────
 
+async def _fetch_realized_pnl(exchange, symbol: str) -> tuple[float, float]:
+    """바이낸스 API에서 최근 실현 손익과 수수료를 조회한다."""
+    try:
+        market_id = exchange.market_id(symbol)
+        # 최근 10분 내 income 조회
+        since = int((datetime.now(timezone.utc) - timedelta(minutes=10)).timestamp() * 1000)
+        incomes = await exchange.fapiPrivateGetIncome({
+            "symbol": market_id,
+            "startTime": since,
+            "limit": 20,
+        })
+        pnl = sum(float(i["income"]) for i in incomes if i["incomeType"] == "REALIZED_PNL")
+        fee = sum(abs(float(i["income"])) for i in incomes if i["incomeType"] == "COMMISSION")
+        return pnl, fee
+    except Exception as e:
+        logger.warning("[%s] 실현 PnL 조회 실패: %s", symbol, e)
+        return None, None
+
+
 async def _close_position(exchange, symbol: str, exit_price: float, reason: str) -> None:
     """저널 업데이트 + 알림 + 상태 초기화."""
     state     = _pos[symbol]
     direction = state["direction"]
 
-    if direction == "long":
-        pnl = (exit_price - state["entry_price"]) * state["amount"] * cfg.LEVERAGE
+    # 바이낸스 API에서 실제 실현 손익 조회
+    api_pnl, api_fee = await _fetch_realized_pnl(exchange, symbol)
+    if api_pnl is not None:
+        pnl = api_pnl
+        fee = api_fee or 0.0
     else:
-        pnl = (state["entry_price"] - exit_price) * state["amount"] * cfg.LEVERAGE
-    fee = exit_price * state["amount"] * 0.0005 * 2
+        # API 실패 시 fallback (레버리지 미포함 — amount가 이미 레버리지 반영)
+        if direction == "long":
+            pnl = (exit_price - state["entry_price"]) * state["amount"]
+        else:
+            pnl = (state["entry_price"] - exit_price) * state["amount"]
+        fee = exit_price * state["amount"] * 0.0004 * 2
 
     if state["trade_id"]:
         journal.close_trade(state["trade_id"], exit_price, fee, pnl)
