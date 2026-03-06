@@ -149,7 +149,7 @@ async def send_candle_status(statuses: list[dict]) -> None:
     if not statuses:
         return
 
-    lines = ["📊 *4H 봉 마감 상태*\n"]
+    lines = ["📊 *4H 봉 마감 상태*"]
     for s in statuses:
         coin = s["symbol"].split("/")[0]
         close = s["close"]
@@ -158,19 +158,71 @@ async def send_candle_status(statuses: list[dict]) -> None:
         bb_upper = s["bb_upper"]
         ema200 = s["ema200"]
 
+        # 포지션 상태
         if s.get("has_position") and s.get("direction"):
             arrow = "📈" if s["direction"] == "long" else "📉"
-            pos_str = f"{arrow} {s['direction'].upper()} @ {s['entry_price']:,.4f}"
+            pos_str = f"{arrow} 포지션: {s['direction'].upper()} @ {s['entry_price']:,.4f}"
         else:
-            pos_str = "⏳ 대기 중"
+            pos_str = "⏳ 포지션: 없음"
+
+        # BB 대비 위치 (%)
+        bb_range = bb_upper - bb_lower
+        if bb_range > 0:
+            bb_pct = (close - bb_lower) / bb_range * 100
+        else:
+            bb_pct = 50.0
+
+        # EMA200 대비 위치
+        ema_diff_pct = (close - ema200) / ema200 * 100
+
+        # 해석
+        comments = []
+        if rsi < 30:
+            comments.append("RSI 과매도 구간")
+        elif rsi > 70:
+            comments.append("RSI 과매수 구간")
+        elif rsi < 40:
+            comments.append("RSI 약세")
+        elif rsi > 60:
+            comments.append("RSI 강세")
+        else:
+            comments.append("RSI 중립")
+
+        if bb_pct < 20:
+            comments.append("BB 하단 근접")
+        elif bb_pct > 80:
+            comments.append("BB 상단 근접")
+
+        if ema_diff_pct > 0:
+            comments.append("EMA200 위 (상승 추세)")
+        else:
+            comments.append("EMA200 아래 (하락 추세)")
+
+        comment_str = " / ".join(comments)
 
         lines.append(
-            f"*{coin}* | {close:,.4f} | RSI {rsi:.1f}\n"
-            f"BB [{bb_lower:,.4f} - {bb_upper:,.4f}] | EMA200 {ema200:,.4f}\n"
-            f"{pos_str}"
+            f"\n🔸 *{coin}*\n"
+            f"종가: {close:,.4f}\n"
+            f"RSI(14): {rsi:.1f}\n"
+            f"BB 상단: {bb_upper:,.4f}\n"
+            f"BB 하단: {bb_lower:,.4f}\n"
+            f"BB 위치: {bb_pct:.0f}%\n"
+            f"EMA200: {ema200:,.4f} ({ema_diff_pct:+.1f}%)\n"
+            f"{pos_str}\n"
+            f"💬 {comment_str}"
         )
 
-    msg = "\n\n".join(lines)
+    # 용어 설명
+    lines.append(
+        "\n─────────────\n"
+        "📖 *용어 설명*\n"
+        "RSI: 상대강도지수 (30↓ 과매도, 70↑ 과매수)\n"
+        "BB: 볼린저밴드 (가격 변동 범위)\n"
+        "BB 위치: 0%=하단, 100%=상단\n"
+        "EMA200: 200봉 지수이동평균 (장기 추세)"
+    )
+
+    msg = "\n".join(lines)
     await send_telegram(msg)
 
 
