@@ -1,0 +1,15 @@
+[Unit]
+Description=coinbot Telegram Listener
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/coinbot
+ExecStart=/home/ubuntu/coinbot/venv/bin/python bot_listener.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
