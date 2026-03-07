@@ -144,6 +144,53 @@ async def send_capital_alert(balance: float, target: float) -> None:
     await send_telegram(msg)
 
 
+def _rsi_bar(rsi_val: float) -> str:
+    """RSI를 5칸 블록 바로 표현."""
+    if rsi_val < 20:
+        return "🟩⬜⬜⬜⬜ 극과매도"
+    elif rsi_val < 40:
+        return "🟦🟩⬜⬜⬜ 과매도"
+    elif rsi_val < 60:
+        return "⬜⬜🟩⬜⬜ 중립"
+    elif rsi_val < 80:
+        return "⬜⬜⬜🟩🟥 과매수"
+    else:
+        return "⬜⬜⬜⬜🟩 극과매수"
+
+
+def _candle_action_hint(symbol: str, rsi: float, bb_pct: float,
+                        ema_diff_pct: float, has_position: bool) -> str:
+    """4H 봉 마감 기준 행동 지침 한 줄."""
+    p = cfg.SYMBOL_STRATEGY.get(symbol, {})
+    rsi_long = p.get("rsi_long", 30)
+    rsi_short = p.get("rsi_short", 65)
+
+    if has_position:
+        return ""  # 포지션 보유 시 별도 표시 불필요
+
+    hints = []
+
+    # 롱 임박 체크
+    long_gap = rsi - rsi_long
+    if ema_diff_pct > 0 and long_gap <= 10 and bb_pct < 30:
+        if long_gap <= 0:
+            hints.append(f"🟢 롱 진입 조건 충족! RSI {rsi:.0f} < {rsi_long}")
+        else:
+            hints.append(f"🟡 롱 진입 임박 — RSI {rsi:.0f}, 목표 {rsi_long}까지 {long_gap:.0f} 남음")
+
+    # 숏 임박 체크
+    short_gap = rsi_short - rsi
+    if ema_diff_pct < 0 and short_gap <= 10 and bb_pct > 70:
+        if short_gap <= 0:
+            hints.append(f"🔴 숏 진입 조건 충족! RSI {rsi:.0f} > {rsi_short}")
+        else:
+            hints.append(f"🟡 숏 진입 임박 — RSI {rsi:.0f}, 목표 {rsi_short}까지 {short_gap:.0f} 남음")
+
+    if hints:
+        return "\n".join(hints)
+    return "⚪ 관망 — 진입 조건 미충족"
+
+
 async def send_candle_status(statuses: list[dict]) -> None:
     """4H 봉 마감 인디케이터 상태 알림 (통합 메시지)."""
     if not statuses:
@@ -159,9 +206,11 @@ async def send_candle_status(statuses: list[dict]) -> None:
         ema200 = s["ema200"]
 
         # 포지션 상태
-        if s.get("has_position") and s.get("direction"):
+        has_position = s.get("has_position") and s.get("direction")
+        if has_position:
             arrow = "📈" if s["direction"] == "long" else "📉"
-            pos_lines = [f"{arrow} 포지션: {s['direction'].upper()} @ {s['entry_price']:,.4f}"]
+            side_kr = "롱" if s["direction"] == "long" else "숏"
+            pos_lines = [f"{arrow} 포지션: {side_kr} @ {s['entry_price']:,.4f}"]
             if s.get("tp_price"):
                 pos_lines.append(f"  익절(TP): {s['tp_price']:,.4f}")
             if s.get("sl_price"):
@@ -212,6 +261,9 @@ async def send_candle_status(statuses: list[dict]) -> None:
 
         comment_str = " / ".join(comments)
 
+        # 행동 지침
+        hint = _candle_action_hint(s["symbol"], rsi, bb_pct, ema_diff_pct, bool(has_position))
+
         # 코인별 진입 조건
         p = s.get("strategy", {})
         rsi_long = p.get("rsi_long", "?")
@@ -224,18 +276,22 @@ async def send_candle_status(statuses: list[dict]) -> None:
             f"  TP: ATR×{tp_mult} / SL: ATR×{sl_mult}"
         )
 
-        lines.append(
+        block = (
             f"\n🔸 *{coin}*\n"
             f"종가: {close:,.4f}\n"
-            f"RSI(14): {rsi:.1f}\n"
+            f"RSI(14): {rsi:.1f} {_rsi_bar(rsi)}\n"
             f"BB 상단: {bb_upper:,.4f}\n"
             f"BB 하단: {bb_lower:,.4f}\n"
             f"BB 위치: {bb_pct:.0f}%\n"
             f"EMA200: {ema200:,.4f} ({ema_diff_pct:+.1f}%)\n"
             f"{pos_str}\n"
-            f"💬 {comment_str}\n"
-            f"📋 진입 조건:\n{cond_str}"
+            f"💬 {comment_str}"
         )
+        if hint:
+            block += f"\n→ {hint}"
+        block += f"\n📋 진입 조건:\n{cond_str}"
+
+        lines.append(block)
 
     # 용어 설명
     lines.append(
