@@ -11,5 +11,6 @@ data/market/
 .DS_Store
 data/.DS_Store
 HANDOFF.md
-.claude/
+.claude/*
+!.claude/rules/
 analysis/
