@@ -43,7 +43,7 @@ The parameters above weren't guessed. Here's what it took to find them.
 
 ### Strategies Evaluated
 
-37 backtest scripts. Every approach was implemented, run, and measured before being accepted or rejected.
+33 active backtest scripts (+ 5 archived). Every approach was implemented, run, and measured before being accepted or rejected.
 
 | Category | What Was Tested |
 |----------|----------------|
@@ -103,7 +103,7 @@ Strategy parameters were validated on rolling out-of-sample windows. Results are
 ## Architecture
 
 ```
-main.py
+main.py (coinbot service)
  ├── data_loop (× 3 symbols)    # WebSocket 4H candle feed
  ├── strategy_loop              # 30s tick — evaluates all symbols
  │    └── _handle_symbol()
@@ -112,6 +112,12 @@ main.py
  ├── risk_loop                  # daily loss limit (−5%)
  ├── daily_report_loop          # 07:00 KST Telegram summary
  └── heartbeat_loop             # 1h status ping
+
+fng_alert_service.py (coinbot-fng-alert service)
+ └── F&G index polling → Telegram alert with trend chart & weekly avg
+
+bot_listener.py (coinbot-listener service)
+ └── Telegram /status command → real-time position & balance summary
 ```
 
 ### Order Flow
@@ -143,26 +149,46 @@ Close → SQLite journal + Telegram alert
 coinbot/
 ├── main.py                 # entrypoint — asyncio event loop
 ├── config.py               # all strategy parameters in one place
+├── fng_alert_service.py    # Fear & Greed index alert (standalone service)
+├── bot_listener.py         # Telegram /status command listener (standalone service)
 ├── bot/
 │   ├── strategy.py         # signal detection, order execution, state management
 │   ├── exchange.py         # Binance USDM futures via ccxt.pro WebSocket
 │   ├── risk.py             # daily loss limit watchdog
 │   ├── journal.py          # SQLite trade log (data/trades.db)
-│   └── report.py           # Telegram notifications
-├── backtest/               # 37 research scripts
+│   ├── report.py           # Telegram notifications
+│   └── fng_alert.py        # Fear & Greed index fetch + formatting
+├── analysis/               # standalone analysis & research modules
+│   ├── backtest_engine.py  # reusable backtest engine
+│   ├── data_loader.py      # parquet data loading
+│   ├── param_search.py     # parameter grid search
+│   ├── signals/            # signal modules (BB, EMA, RSI, MACD, etc.)
+│   └── output/             # generated results (not tracked)
+├── backtest/               # 33 research scripts
 │   ├── backtest_fullperiod_grid.py     # 2017–2026 full-period grid search
 │   ├── backtest_bb_rsi_v2.py          # 4H BB+RSI core strategy
 │   ├── backtest_switch_btcregime.py   # BTC-global regime switching
 │   ├── backtest_dual_tier.py          # 4H+1H signal quality tiering
 │   ├── backtest_wf_all.py             # walk-forward validation
+│   ├── _archive/                      # deprecated versions
 │   └── ...
+├── tools/
+│   ├── check_state.py     # position state inspector
+│   ├── close_all.py       # emergency close all positions
+│   └── download_1m.py     # historical 1m candle downloader
 ├── data/
 │   ├── market/             # parquet candle data (2017–2026, not tracked)
 │   ├── trades.db           # live trade history (not tracked)
 │   └── results/            # 164 backtest output files
-└── tests/
-    ├── conftest.py
-    └── test_strategy.py
+├── tests/                  # 5 test modules (19 tests)
+│   ├── conftest.py
+│   ├── test_strategy.py
+│   ├── test_risk.py
+│   ├── test_journal.py
+│   ├── test_report.py
+│   └── test_listener.py
+├── coinbot-fng-alert.service   # systemd unit for F&G alert
+└── coinbot-listener.service    # systemd unit for status listener
 ```
 
 ---
