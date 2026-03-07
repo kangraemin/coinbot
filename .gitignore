@@ -8,9 +8,13 @@ venv/
 .worklogs/.snapshot
 data/market/
 .idea/
-.DS_Store
-data/.DS_Store
+*.DS_Store
 HANDOFF.md
 .claude/*
 !.claude/rules/
-analysis/
+analysis/output/
+analysis/__pycache__/
+.pytest_cache/
+docs/*/
+!docs/analysis/
+backtest/_archive/
