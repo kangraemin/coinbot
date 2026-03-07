@@ -1,9 +1,9 @@
-"""Fear & Greed DCA 분할매수 전략 백테스트 — ~220K건 그리드 서치.
+"""Fear & Greed DCA 분할매수 전략 백테스트 v2 — ~505K건 그리드 서치.
 
 전략:
   매수: F&G <= threshold → 매일 분할매수 (fixed/tiered/equal)
-  추가 필터: funding rate < 0 (선택)
-  매도: 가중 평균단가 기준 TP/SL/fg_sell/hold
+  추가 필터: funding rate, RSI(14), ETH/BTC 비율, 연속하락일
+  매도: 가중 평균단가 기준 TP/SL/fg_sell/hold (hold+overlay 포함)
   레버리지: 1/3/7x
 
 코인: BTC, ETH, XRP
@@ -35,6 +35,9 @@ TIER_SCALES = ["conservative", "moderate", "aggressive"]
 MAX_INVEST_PCTS = [0.70, 1.00]
 LEVERAGES = [1, 3, 7]
 FUNDING_FILTERS = ["off", "negative"]
+RSI_FILTERS = ["off", "oversold"]       # RSI(14) < 30
+ETHBTC_FILTERS = ["off", "btc_strong"]  # ETH/BTC < 20일 MA
+CONSEC_DOWN_FILTERS = ["off", "3plus"]  # 3일+ 연속 하락
 FG_SELL_THRESHOLDS = [50, 70, 90]
 TP_PCTS = [0.10, 0.20, 0.30]
 SL_PCTS = [0.05, 0.10, 0.15]
