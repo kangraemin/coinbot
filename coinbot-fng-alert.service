@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/coinbot
-ExecStart=/home/ubuntu/coinbot/.venv/bin/python fng_alert_service.py
+ExecStart=/home/ubuntu/coinbot/venv/bin/python fng_alert_service.py
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
