@@ -14,6 +14,7 @@ import aiohttp
 
 import config as cfg
 from bot.exchange import create_exchange
+from bot.fng_alert import fetch_current_fng, get_fear_streak, build_fng_alert
 from bot.strategy import _compute_indicators
 
 logging.basicConfig(format=cfg.LOG_FORMAT, level=cfg.LOG_LEVEL)
@@ -293,7 +294,26 @@ async def build_status(exchange, symbol_key: str | None = None) -> str:
             "EMA200: 200봉 지수이동평균 (장기 추세)"
         )
 
+    # F&G 섹션 추가
+    fng_section = await _build_fng_section()
+    if fng_section:
+        lines.append("\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+        lines.append(fng_section)
+
     return "\n".join(lines)
+
+
+async def _build_fng_section() -> str | None:
+    """F&G 알림 섹션 생성."""
+    try:
+        fng_value = await fetch_current_fng()
+        if fng_value is None:
+            return None
+        streak = get_fear_streak()
+        return build_fng_alert(fng_value, streak)
+    except Exception as e:
+        logger.warning("F&G section error: %s", e)
+        return None
 
 
 def build_help() -> str:
@@ -303,6 +323,7 @@ def build_help() -> str:
         "\U0001f4cb *사용 가능한 명령어*\n\n"
         f"/status \u2014 전체 코인 요약\n"
         f"/status BTC \u2014 개별 코인 상세\n"
+        f"/fng \u2014 F&G 공포/탐욕 지수 + DCA 추천\n"
         f"/help \u2014 도움말\n\n"
         f"코인: {coins}"
     )
@@ -324,6 +345,10 @@ async def handle_message(
         parts = text.split()
         symbol_key = parts[1].upper() if len(parts) > 1 else None
         reply = await build_status(exchange, symbol_key)
+        await send_reply(session, chat_id, reply)
+    elif text.startswith("/fng"):
+        fng_section = await _build_fng_section()
+        reply = fng_section or "F&G 데이터 조회 실패"
         await send_reply(session, chat_id, reply)
     elif text.startswith("/help"):
         reply = build_help()

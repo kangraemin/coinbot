@@ -1,0 +1,15 @@
+[Unit]
+Description=Coinbot F&G Alert Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/coinbot
+ExecStart=/home/ubuntu/coinbot/.venv/bin/python fng_alert_service.py
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
