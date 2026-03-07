@@ -41,11 +41,11 @@ async def test_build_status_all_symbols(mock_exchange):
     from bot_listener import build_status
 
     result = await build_status(mock_exchange)
-    assert "coinbot status" in result
+    assert "coinbot 현황" in result
     assert "BTC" in result
     assert "ETH" in result
     assert "XRP" in result
-    assert "balance" in result
+    assert "잔액" in result
 
 
 @pytest.mark.asyncio
@@ -55,8 +55,8 @@ async def test_build_status_single_coin(mock_exchange):
 
     result = await build_status(mock_exchange, "BTC")
     assert "BTC" in result
-    assert "entry conditions" in result
-    assert "Glossary" in result
+    assert "진입 조건" in result
+    assert "용어 설명" in result
     # Should not contain other coins in detailed mode
     assert "ETH" not in result
 
@@ -67,7 +67,7 @@ async def test_build_status_unknown_symbol(mock_exchange):
     from bot_listener import build_status
 
     result = await build_status(mock_exchange, "DOGE")
-    assert "Unknown coin" in result
+    assert "알 수 없는 코인" in result
     assert "BTC" in result  # available coins listed
 
 
