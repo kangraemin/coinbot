@@ -79,8 +79,8 @@ def _rsi_bar(rsi_val: float) -> str:
         return "\u2b1c\u2b1c\u2b1c\u2b1c\U0001f7e9 극과매수"
 
 
-def _action_hint(symbol: str, ind: dict, position: dict | None) -> str:
-    """현재 상태 기반 행동 지침 — 구체적 진입 가격 포함."""
+def _action_hint(symbol: str, ind: dict, position: dict | None) -> list[str]:
+    """현재 상태 기반 진입 조건 — 롱/숏 분리, 한 줄 한 정보."""
     p = cfg.SYMBOL_STRATEGY.get(symbol, {})
     rsi_long = p.get("rsi_long", 30)
     rsi_short = p.get("rsi_short", 65)
@@ -98,41 +98,75 @@ def _action_hint(symbol: str, ind: dict, position: dict | None) -> str:
         unrealized_pnl = float(position.get("unrealizedPnl", 0))
         arrow = "\U0001f4c8" if side == "long" else "\U0001f4c9"
         side_kr = "롱" if side == "long" else "숏"
-        return f"{arrow} {side_kr} 보유 중 \u2014 미실현 {unrealized_pnl:+,.2f} USDT"
+        return [f"{arrow} *{side_kr} 보유 중*", f"미실현 손익: {unrealized_pnl:+,.2f} USDT"]
 
     lines = []
 
-    # 롱 조건: close < BB하단 & RSI < rsi_long & close > EMA200
+    # ── 롱 조건 ──
     long_price = bb_lower
     long_price_pct = (long_price - close) / close * 100
     long_rsi_gap = rsi - rsi_long
     ema_above = close > ema200
 
-    lines.append(f"\U0001f7e2 롱: {long_price:,.4f} 이하 ({long_price_pct:+.1f}%) + RSI {rsi_long} 이하 (현재 {rsi:.0f}, {long_rsi_gap:.0f} 남음)")
+    long_ok = 0
+    lines.append("")
+    lines.append("\U0001f7e2 *롱 진입 조건*")
+    # 가격 조건
+    if close < bb_lower:
+        lines.append(f"\u2705 가격: BB하단({bb_lower:,.4f}) 이하")
+        long_ok += 1
+    else:
+        lines.append(f"\u274c 가격: {bb_lower:,.4f} 이하 필요 ({long_price_pct:+.1f}%)")
+    # RSI 조건
+    if rsi < rsi_long:
+        lines.append(f"\u2705 RSI: {rsi:.0f} (기준 {rsi_long} 이하)")
+        long_ok += 1
+    else:
+        lines.append(f"\u274c RSI: {rsi:.0f} → {rsi_long} 이하 필요 ({long_rsi_gap:.0f} 남음)")
+    # EMA200 조건
     if ema_above:
-        lines.append(f"   \u2705 EMA200 위 조건 충족")
+        lines.append("\u2705 EMA200 위 (상승 추세)")
+        long_ok += 1
     else:
         ema_gap_pct = (ema200 - close) / close * 100
-        lines.append(f"   \u26a0\ufe0f EMA200({ema200:,.4f}) 위 필요 \u2014 현재 아래 (+{ema_gap_pct:.1f}% 상승 필요)")
+        lines.append(f"\u274c EMA200 위 필요 (+{ema_gap_pct:.1f}% 상승)")
+    lines.append(f"→ {long_ok}/3 충족")
 
-    # 숏 조건: close > BB상단 & RSI > rsi_short & close < EMA200
+    # ── 숏 조건 ──
     short_price = bb_upper
     short_price_pct = (short_price - close) / close * 100
     short_rsi_gap = rsi_short - rsi
     ema_below = close < ema200
 
-    lines.append(f"\U0001f534 숏: {short_price:,.4f} 이상 ({short_price_pct:+.1f}%) + RSI {rsi_short} 이상 (현재 {rsi:.0f}, {short_rsi_gap:.0f} 남음)")
+    short_ok = 0
+    lines.append("")
+    lines.append("\U0001f534 *숏 진입 조건*")
+    # 가격 조건
+    if close > bb_upper:
+        lines.append(f"\u2705 가격: BB상단({bb_upper:,.4f}) 이상")
+        short_ok += 1
+    else:
+        lines.append(f"\u274c 가격: {bb_upper:,.4f} 이상 필요 ({short_price_pct:+.1f}%)")
+    # RSI 조건
+    if rsi > rsi_short:
+        lines.append(f"\u2705 RSI: {rsi:.0f} (기준 {rsi_short} 이상)")
+        short_ok += 1
+    else:
+        lines.append(f"\u274c RSI: {rsi:.0f} → {rsi_short} 이상 필요 ({short_rsi_gap:.0f} 남음)")
+    # EMA200 조건
     if ema_below:
-        lines.append(f"   \u2705 EMA200 아래 조건 충족")
+        lines.append("\u2705 EMA200 아래 (하락 추세)")
+        short_ok += 1
     else:
         ema_gap_pct = (close - ema200) / close * 100
-        lines.append(f"   \u26a0\ufe0f EMA200({ema200:,.4f}) 아래 필요 \u2014 현재 위 (-{ema_gap_pct:.1f}% 하락 필요)")
+        lines.append(f"\u274c EMA200 아래 필요 (-{ema_gap_pct:.1f}% 하락)")
+    lines.append(f"→ {short_ok}/3 충족")
 
-    return "\n".join(lines)
+    return lines
 
 
 def _format_coin_status(ind: dict, symbol: str, position: dict | None, detailed: bool = False) -> str:
-    """코인별 상태 포맷."""
+    """코인별 상태 포맷 — 한 줄 한 정보, 섹션 구분."""
     coin = symbol.split("/")[0]
     p = cfg.SYMBOL_STRATEGY.get(symbol, {})
 
@@ -149,7 +183,41 @@ def _format_coin_status(ind: dict, symbol: str, position: dict | None, detailed:
     # EMA200 대비 %
     ema_diff_pct = (close - ema200) / ema200 * 100
 
-    # 포지션 상태
+    # ── 헤더 + 가격 ──
+    lines = [
+        f"\n\U0001f538 *{coin}*",
+        "",
+        f"\U0001f4b5 *현재 가격*",
+        f"종가: {close:,.4f}",
+    ]
+
+    # ── RSI ──
+    lines.append("")
+    lines.append(f"\U0001f4ca *RSI(14)*")
+    lines.append(f"값: {rsi:.1f}")
+    lines.append(_rsi_bar(rsi))
+
+    # ── 볼린저밴드 ──
+    bb_bar_len = int(bb_pct / 5)
+    bb_bar = "\u2588" * bb_bar_len + "\u2591" * (20 - bb_bar_len)
+    lines.append("")
+    lines.append("\U0001f4c9 *볼린저밴드*")
+    lines.append(f"상단: {bb_upper:,.4f}")
+    lines.append(f"하단: {bb_lower:,.4f}")
+    lines.append(f"위치: {bb_pct:.0f}% `{bb_bar}`")
+
+    # ── EMA200 ──
+    lines.append("")
+    lines.append("\U0001f4c8 *EMA200*")
+    lines.append(f"값: {ema200:,.4f}")
+    lines.append(f"괴리: {ema_diff_pct:+.1f}%")
+    if ema_diff_pct > 0:
+        lines.append("추세: \U0001f7e2 상승 (가격 > EMA200)")
+    else:
+        lines.append("추세: \U0001f534 하락 (가격 < EMA200)")
+
+    # ── 포지션 ──
+    lines.append("")
     if position and abs(position.get("contracts", 0)) > 0:
         side = position.get("side", "")
         entry = float(position.get("entryPrice", 0))
@@ -158,10 +226,10 @@ def _format_coin_status(ind: dict, symbol: str, position: dict | None, detailed:
         arrow = "\U0001f4c8" if side == "long" else "\U0001f4c9"
         side_kr = "롱" if side == "long" else "숏"
 
-        pos_lines = [f"{arrow} 포지션: {side_kr} @ {entry:,.4f}"]
-        pos_lines.append(f"  수량: {contracts:.6f} ({contracts * entry:,.2f} USDT)")
-        pnl_emoji = "+" if unrealized_pnl >= 0 else ""
-        pos_lines.append(f"  미실현 손익: {pnl_emoji}{unrealized_pnl:,.2f} USDT")
+        lines.append(f"{arrow} *포지션: {side_kr}*")
+        lines.append(f"진입가: {entry:,.4f}")
+        lines.append(f"수량: {contracts:.6f} ({contracts * entry:,.2f} USDT)")
+        lines.append(f"미실현 손익: {unrealized_pnl:+,.2f} USDT")
 
         # TP/SL 추정 (ATR 기반)
         atr = ind.get("atr", 0)
@@ -174,64 +242,16 @@ def _format_coin_status(ind: dict, symbol: str, position: dict | None, detailed:
             else:
                 tp_price = entry - atr * tp_mult
                 sl_price = entry + atr * sl_mult
-            pos_lines.append(f"  익절(TP): {tp_price:,.4f} / 손절(SL): {sl_price:,.4f}")
-
-        pos_str = "\n".join(pos_lines)
+            lines.append(f"익절(TP): {tp_price:,.4f}")
+            lines.append(f"손절(SL): {sl_price:,.4f}")
     else:
-        pos_str = "\u23f3 포지션: 대기 중"
+        lines.append("\u23f3 *포지션: 대기 중*")
 
-    # 해석
-    comments = []
-    if rsi < 30:
-        comments.append("RSI 과매도")
-    elif rsi > 70:
-        comments.append("RSI 과매수")
-    elif rsi < 40:
-        comments.append("RSI 약세")
-    elif rsi > 60:
-        comments.append("RSI 강세")
-    else:
-        comments.append("RSI 중립")
-
-    if bb_pct < 20:
-        comments.append("BB 하단 근접")
-    elif bb_pct > 80:
-        comments.append("BB 상단 근접")
-
-    if ema_diff_pct > 0:
-        comments.append("EMA200 위 (상승 추세)")
-    else:
-        comments.append("EMA200 아래 (하락 추세)")
-
-    comment_str = " / ".join(comments)
-
-    # 행동 지침
-    hint = _action_hint(symbol, ind, position)
-
-    lines = [
-        f"\n\U0001f538 *{coin}*",
-        f"종가: {close:,.4f}",
-        f"RSI(14): {rsi:.1f} {_rsi_bar(rsi)}",
-        f"BB 상단: {bb_upper:,.4f}",
-        f"BB 하단: {bb_lower:,.4f}",
-        f"BB 위치: {bb_pct:.0f}%",
-        f"EMA200: {ema200:,.4f} ({ema_diff_pct:+.1f}%)",
-        pos_str,
-        f"\U0001f4ac {comment_str}",
-        f"\u2192 {hint}",
-    ]
-
-    if detailed:
-        rsi_long = p.get("rsi_long", "?")
-        rsi_short = p.get("rsi_short", "?")
-        sl_mult = p.get("sl_mult", "?")
-        tp_mult = p.get("tp_mult", "?")
-        lines.append(
-            f"\U0001f4cb 진입 조건:\n"
-            f"\U0001f7e2 롱: 종가<BB하단 & RSI<{rsi_long} & 종가>EMA200\n"
-            f"\U0001f534 숏: 종가>BB상단 & RSI>{rsi_short} & 종가<EMA200\n"
-            f"  TP: ATR\u00d7{tp_mult} / SL: ATR\u00d7{sl_mult}"
-        )
+    # ── 진입 조건 (롱/숏 분리) ──
+    lines.append("")
+    lines.append("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+    hint_lines = _action_hint(symbol, ind, position)
+    lines.extend(hint_lines)
 
     return "\n".join(lines)
 
@@ -285,14 +305,13 @@ async def build_status(exchange, symbol_key: str | None = None) -> str:
         logger.warning("Balance error: %s", e)
 
     if detailed:
-        lines.append(
-            "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
-            "\U0001f4d6 *용어 설명*\n"
-            "RSI: 상대강도지수 (30\u2193 과매도, 70\u2191 과매수)\n"
-            "BB: 볼린저밴드 (가격 변동 범위)\n"
-            "BB 위치: 0%=하단, 100%=상단\n"
-            "EMA200: 200봉 지수이동평균 (장기 추세)"
-        )
+        lines.append("\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+        lines.append("")
+        lines.append("\U0001f4d6 *용어 설명*")
+        lines.append("RSI: 상대강도지수 (30↓ 과매도, 70↑ 과매수)")
+        lines.append("BB: 볼린저밴드 (가격 변동 범위)")
+        lines.append("BB 위치: 0%=하단, 100%=상단")
+        lines.append("EMA200: 200봉 지수이동평균 (장기 추세)")
 
     # F&G 섹션 추가
     fng_section = await _build_fng_section()
