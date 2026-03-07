@@ -78,12 +78,17 @@ def _rsi_bar(rsi_val: float) -> str:
         return "\u2b1c\u2b1c\u2b1c\u2b1c\U0001f7e9 극과매수"
 
 
-def _action_hint(symbol: str, rsi: float, bb_pct: float, ema_diff_pct: float,
-                 position: dict | None) -> str:
-    """현재 상태 기반 행동 지침 한 줄."""
+def _action_hint(symbol: str, ind: dict, position: dict | None) -> str:
+    """현재 상태 기반 행동 지침 — 구체적 진입 가격 포함."""
     p = cfg.SYMBOL_STRATEGY.get(symbol, {})
     rsi_long = p.get("rsi_long", 30)
     rsi_short = p.get("rsi_short", 65)
+
+    close = ind["close"]
+    bb_lower = ind["bb_lower"]
+    bb_upper = ind["bb_upper"]
+    ema200 = ind["ema200"]
+    rsi = ind["rsi"]
 
     has_pos = position and abs(position.get("contracts", 0)) > 0
 
@@ -94,27 +99,35 @@ def _action_hint(symbol: str, rsi: float, bb_pct: float, ema_diff_pct: float,
         side_kr = "롱" if side == "long" else "숏"
         return f"{arrow} {side_kr} 보유 중 \u2014 미실현 {unrealized_pnl:+,.2f} USDT"
 
-    hints = []
+    lines = []
 
-    # 롱 임박 체크: RSI가 rsi_long 근처이고 EMA200 위
-    long_gap = rsi - rsi_long
-    if ema_diff_pct > 0 and long_gap <= 10 and bb_pct < 30:
-        if long_gap <= 0:
-            hints.append(f"\U0001f7e2 롱 진입 조건 충족! RSI {rsi:.0f} < {rsi_long}")
-        else:
-            hints.append(f"\U0001f7e1 롱 진입 임박 \u2014 RSI {rsi:.0f}, 목표 {rsi_long}까지 {long_gap:.0f} 남음")
+    # 롱 조건: close < BB하단 & RSI < rsi_long & close > EMA200
+    long_price = bb_lower
+    long_price_pct = (long_price - close) / close * 100
+    long_rsi_gap = rsi - rsi_long
+    ema_above = close > ema200
 
-    # 숏 임박 체크: RSI가 rsi_short 근처이고 EMA200 아래
-    short_gap = rsi_short - rsi
-    if ema_diff_pct < 0 and short_gap <= 10 and bb_pct > 70:
-        if short_gap <= 0:
-            hints.append(f"\U0001f534 숏 진입 조건 충족! RSI {rsi:.0f} > {rsi_short}")
-        else:
-            hints.append(f"\U0001f7e1 숏 진입 임박 \u2014 RSI {rsi:.0f}, 목표 {rsi_short}까지 {short_gap:.0f} 남음")
+    lines.append(f"\U0001f7e2 롱: {long_price:,.4f} 이하 ({long_price_pct:+.1f}%) + RSI {rsi_long} 이하 (현재 {rsi:.0f}, {long_rsi_gap:.0f} 남음)")
+    if ema_above:
+        lines.append(f"   \u2705 EMA200 위 조건 충족")
+    else:
+        ema_gap_pct = (ema200 - close) / close * 100
+        lines.append(f"   \u26a0\ufe0f EMA200({ema200:,.4f}) 위 필요 \u2014 현재 아래 (+{ema_gap_pct:.1f}% 상승 필요)")
 
-    if hints:
-        return "\n".join(hints)
-    return "\u26aa 관망 \u2014 진입 조건 미충족"
+    # 숏 조건: close > BB상단 & RSI > rsi_short & close < EMA200
+    short_price = bb_upper
+    short_price_pct = (short_price - close) / close * 100
+    short_rsi_gap = rsi_short - rsi
+    ema_below = close < ema200
+
+    lines.append(f"\U0001f534 숏: {short_price:,.4f} 이상 ({short_price_pct:+.1f}%) + RSI {rsi_short} 이상 (현재 {rsi:.0f}, {short_rsi_gap:.0f} 남음)")
+    if ema_below:
+        lines.append(f"   \u2705 EMA200 아래 조건 충족")
+    else:
+        ema_gap_pct = (close - ema200) / close * 100
+        lines.append(f"   \u26a0\ufe0f EMA200({ema200:,.4f}) 아래 필요 \u2014 현재 위 (-{ema_gap_pct:.1f}% 하락 필요)")
+
+    return "\n".join(lines)
 
 
 def _format_coin_status(ind: dict, symbol: str, position: dict | None, detailed: bool = False) -> str:
@@ -192,7 +205,7 @@ def _format_coin_status(ind: dict, symbol: str, position: dict | None, detailed:
     comment_str = " / ".join(comments)
 
     # 행동 지침
-    hint = _action_hint(symbol, rsi, bb_pct, ema_diff_pct, position)
+    hint = _action_hint(symbol, ind, position)
 
     lines = [
         f"\n\U0001f538 *{coin}*",

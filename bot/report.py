@@ -158,37 +158,48 @@ def _rsi_bar(rsi_val: float) -> str:
         return "⬜⬜⬜⬜🟩 극과매수"
 
 
-def _candle_action_hint(symbol: str, rsi: float, bb_pct: float,
-                        ema_diff_pct: float, has_position: bool) -> str:
-    """4H 봉 마감 기준 행동 지침 한 줄."""
+def _candle_action_hint(s: dict) -> str:
+    """4H 봉 마감 기준 행동 지침 — 구체적 진입 가격 포함."""
+    symbol = s["symbol"]
     p = cfg.SYMBOL_STRATEGY.get(symbol, {})
     rsi_long = p.get("rsi_long", 30)
     rsi_short = p.get("rsi_short", 65)
 
+    has_position = s.get("has_position") and s.get("direction")
     if has_position:
-        return ""  # 포지션 보유 시 별도 표시 불필요
+        return ""
 
-    hints = []
+    close = s["close"]
+    bb_lower = s["bb_lower"]
+    bb_upper = s["bb_upper"]
+    ema200 = s["ema200"]
+    rsi = s["rsi"]
 
-    # 롱 임박 체크
-    long_gap = rsi - rsi_long
-    if ema_diff_pct > 0 and long_gap <= 10 and bb_pct < 30:
-        if long_gap <= 0:
-            hints.append(f"🟢 롱 진입 조건 충족! RSI {rsi:.0f} < {rsi_long}")
-        else:
-            hints.append(f"🟡 롱 진입 임박 — RSI {rsi:.0f}, 목표 {rsi_long}까지 {long_gap:.0f} 남음")
+    lines = []
 
-    # 숏 임박 체크
-    short_gap = rsi_short - rsi
-    if ema_diff_pct < 0 and short_gap <= 10 and bb_pct > 70:
-        if short_gap <= 0:
-            hints.append(f"🔴 숏 진입 조건 충족! RSI {rsi:.0f} > {rsi_short}")
-        else:
-            hints.append(f"🟡 숏 진입 임박 — RSI {rsi:.0f}, 목표 {rsi_short}까지 {short_gap:.0f} 남음")
+    # 롱 조건
+    long_price_pct = (bb_lower - close) / close * 100
+    long_rsi_gap = rsi - rsi_long
+    ema_above = close > ema200
+    lines.append(f"🟢 롱: {bb_lower:,.4f} 이하 ({long_price_pct:+.1f}%) + RSI {rsi_long} 이하 (현재 {rsi:.0f}, {long_rsi_gap:.0f} 남음)")
+    if ema_above:
+        lines.append(f"   ✅ EMA200 위 조건 충족")
+    else:
+        ema_gap_pct = (ema200 - close) / close * 100
+        lines.append(f"   ⚠️ EMA200({ema200:,.4f}) 위 필요 — 현재 아래 (+{ema_gap_pct:.1f}% 상승 필요)")
 
-    if hints:
-        return "\n".join(hints)
-    return "⚪ 관망 — 진입 조건 미충족"
+    # 숏 조건
+    short_price_pct = (bb_upper - close) / close * 100
+    short_rsi_gap = rsi_short - rsi
+    ema_below = close < ema200
+    lines.append(f"🔴 숏: {bb_upper:,.4f} 이상 ({short_price_pct:+.1f}%) + RSI {rsi_short} 이상 (현재 {rsi:.0f}, {short_rsi_gap:.0f} 남음)")
+    if ema_below:
+        lines.append(f"   ✅ EMA200 아래 조건 충족")
+    else:
+        ema_gap_pct = (close - ema200) / close * 100
+        lines.append(f"   ⚠️ EMA200({ema200:,.4f}) 아래 필요 — 현재 위 (-{ema_gap_pct:.1f}% 하락 필요)")
+
+    return "\n".join(lines)
 
 
 async def send_candle_status(statuses: list[dict]) -> None:
@@ -262,7 +273,7 @@ async def send_candle_status(statuses: list[dict]) -> None:
         comment_str = " / ".join(comments)
 
         # 행동 지침
-        hint = _candle_action_hint(s["symbol"], rsi, bb_pct, ema_diff_pct, bool(has_position))
+        hint = _candle_action_hint(s)
 
         # 코인별 진입 조건
         p = s.get("strategy", {})
