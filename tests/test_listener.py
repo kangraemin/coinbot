@@ -57,8 +57,10 @@ async def test_build_status_single_coin(mock_exchange):
     assert "BTC" in result
     assert "진입 조건" in result
     assert "용어 설명" in result
-    # Should not contain other coins in detailed mode
-    assert "ETH" not in result
+    # Should not contain other coins in detailed mode (F&G 섹션의 ETHU 제외)
+    # F&G 섹션 이전 텍스트만 검사
+    main_section = result.split("─────────────")[0] if "─────────────" in result else result
+    assert "ETH" not in main_section
 
 
 @pytest.mark.asyncio
